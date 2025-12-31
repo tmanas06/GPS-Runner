@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import '../services/blockchain_service.dart';
 import '../services/isar_db.dart';
 import '../models/marker.dart';
+import 'login_screen.dart';
 
 /// Detailed user profile screen
 class UserProfileScreen extends StatefulWidget {
@@ -632,7 +633,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     if (confirm == true) {
       await _auth.signOut();
       if (mounted) {
-        Navigator.of(context).popUntil((route) => route.isFirst);
+        // Navigate to login screen and clear all routes
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (route) => false,
+        );
       }
     }
   }

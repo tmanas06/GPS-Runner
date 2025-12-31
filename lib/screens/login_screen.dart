@@ -253,13 +253,13 @@ class _LoginScreenState extends State<LoginScreen>
           const SizedBox(height: 48),
 
           // Features
-          _buildFeatureRow(Icons.location_on, 'Run in Delhi & Hyderabad'),
+          _buildFeatureRow(Icons.public, 'Run anywhere in the world'),
           const SizedBox(height: 12),
           _buildFeatureRow(Icons.account_balance_wallet, 'Auto-create Web3 Wallet'),
           const SizedBox(height: 12),
-          _buildFeatureRow(Icons.verified, 'GPS Proofs on Blockchain'),
+          _buildFeatureRow(Icons.chat_bubble, 'Location-based Chat Rooms'),
           const SizedBox(height: 12),
-          _buildFeatureRow(Icons.security, 'Encrypted Key Storage'),
+          _buildFeatureRow(Icons.verified, 'GPS Proofs on Blockchain'),
 
           const Spacer(flex: 1),
 

@@ -4,11 +4,10 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 import '../services/auth_service.dart';
 import '../services/blockchain_service.dart';
 import '../services/isar_db.dart';
-import '../services/gps_service.dart';
-import '../models/city_bounds.dart';
 import '../models/marker.dart';
 import '../widgets/colored_marker.dart';
 import '../config/map_config.dart';
@@ -16,6 +15,8 @@ import 'runner_screen.dart';
 import 'how_to_play_screen.dart';
 import 'user_profile_screen.dart';
 import 'wallet_screen.dart';
+import 'chat_list_screen.dart';
+import 'login_screen.dart';
 
 /// Profile screen with dual-city map and leaderboards
 class ProfileScreen extends StatefulWidget {
@@ -34,14 +35,10 @@ class _ProfileScreenState extends State<ProfileScreen>
   late AuthService _auth;
   late BlockchainService _blockchain;
   late IsarDBService _db;
-  late GPSService _gps;
 
   // Data
-  List<GPSMarker> _delhiMarkers = [];
-  List<GPSMarker> _hydMarkers = [];
-  List<GPSMarker> _liveMarkers = [];
-  List<MapEntry<String, int>> _delhiLeaderboard = [];
-  List<MapEntry<String, int>> _hydLeaderboard = [];
+  List<GPSMarker> _cityMarkers = [];
+  List<MapEntry<String, int>> _cityLeaderboard = [];
   bool _isLoading = true;
 
   // Current location
@@ -49,8 +46,9 @@ class _ProfileScreenState extends State<ProfileScreen>
   StreamSubscription<Position>? _locationSubscription;
   bool _hasMovedToLocation = false;
 
-  // Current view
-  String _selectedCity = 'delhi';
+  // Current city info (detected from location)
+  String _currentCity = 'Detecting...';
+  String _currentCountry = '';
 
   // Map style
   MapStyle _mapStyle = MapStyle.streets;
@@ -58,14 +56,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-    _tabController.addListener(() {
-      if (_tabController.indexIsChanging) return;
-      setState(() {
-        if (_tabController.index == 0) _selectedCity = 'delhi';
-        if (_tabController.index == 1) _selectedCity = 'hyderabad';
-      });
-    });
+    _tabController = TabController(length: 2, vsync: this);
   }
 
   @override
@@ -74,9 +65,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     _auth = context.read<AuthService>();
     _blockchain = context.read<BlockchainService>();
     _db = context.read<IsarDBService>();
-    _gps = context.read<GPSService>();
 
-    _loadData();
     _startLocationTracking();
   }
 
@@ -92,6 +81,9 @@ class _ProfileScreenState extends State<ProfileScreen>
           _currentLocation = LatLng(position.latitude, position.longitude);
         });
 
+        // Detect city from coordinates
+        await _detectCityFromLocation(position.latitude, position.longitude);
+
         // Move map to current location with zoom level 18 (street level, like walking directions)
         if (!_hasMovedToLocation && _currentLocation != null) {
           _hasMovedToLocation = true;
@@ -101,6 +93,9 @@ class _ProfileScreenState extends State<ProfileScreen>
             }
           });
         }
+
+        // Load data after city is detected
+        _loadData();
       }
 
       // Start listening for location updates (real-time like Swiggy/Zomato)
@@ -125,35 +120,71 @@ class _ProfileScreenState extends State<ProfileScreen>
     }
   }
 
+  Future<void> _detectCityFromLocation(double latitude, double longitude) async {
+    try {
+      List<Placemark> placemarks = await placemarkFromCoordinates(
+        latitude,
+        longitude,
+      );
+
+      if (placemarks.isNotEmpty && mounted) {
+        final place = placemarks.first;
+
+        // Prefer broader location names: district > city > state
+        // Avoid small localities, prefer larger areas
+        String? detectedCity;
+
+        // First try subAdministrativeArea (district/county level)
+        if (place.subAdministrativeArea != null &&
+            place.subAdministrativeArea!.isNotEmpty) {
+          detectedCity = place.subAdministrativeArea;
+        }
+        // Then try locality (city)
+        else if (place.locality != null && place.locality!.isNotEmpty) {
+          detectedCity = place.locality;
+        }
+        // Fall back to administrativeArea (state/province)
+        else if (place.administrativeArea != null &&
+                 place.administrativeArea!.isNotEmpty) {
+          detectedCity = place.administrativeArea;
+        }
+
+        setState(() {
+          _currentCity = detectedCity ?? 'Unknown';
+          _currentCountry = place.country ?? '';
+        });
+      }
+    } catch (e) {
+      debugPrint('Geocoding error: $e');
+      if (mounted) {
+        setState(() {
+          _currentCity = 'Unknown';
+          _currentCountry = '';
+        });
+      }
+    }
+  }
+
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
 
     try {
-      // Load markers from local DB
-      _delhiMarkers = await _db.getCityMarkers('delhi');
-      _hydMarkers = await _db.getCityMarkers('hyderabad');
+      final cityKey = _currentCity.toLowerCase().replaceAll(' ', '_');
 
-      // Load leaderboards
-      _delhiLeaderboard = await _db.getLeaderboard('delhi');
-      _hydLeaderboard = await _db.getLeaderboard('hyderabad');
+      // Load markers from local DB for current city
+      _cityMarkers = await _db.getCityMarkers(cityKey);
 
-      // Get live markers from blockchain
-      _liveMarkers = _blockchain.liveMarkers;
+      // Load leaderboard for current city
+      _cityLeaderboard = await _db.getLeaderboard(cityKey);
 
       // Try to fetch from chain
       if (_blockchain.isConnected) {
-        final chainDelhiMarkers = await _blockchain.getAllMarkers('delhi');
-        final chainHydMarkers = await _blockchain.getAllMarkers('hyderabad');
+        final chainMarkers = await _blockchain.getAllMarkers(cityKey);
 
         // Merge with local markers (avoid duplicates)
-        for (final marker in chainDelhiMarkers) {
-          if (!_delhiMarkers.any((m) => m.txHash == marker.txHash)) {
-            _delhiMarkers.add(marker);
-          }
-        }
-        for (final marker in chainHydMarkers) {
-          if (!_hydMarkers.any((m) => m.txHash == marker.txHash)) {
-            _hydMarkers.add(marker);
+        for (final marker in chainMarkers) {
+          if (!_cityMarkers.any((m) => m.txHash == marker.txHash)) {
+            _cityMarkers.add(marker);
           }
         }
       }
@@ -174,6 +205,16 @@ class _ProfileScreenState extends State<ProfileScreen>
         automaticallyImplyLeading: false,
         actions: [
           IconButton(
+            icon: const Icon(Icons.chat_bubble_outline),
+            tooltip: 'Chat',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ChatListScreen()),
+              );
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.account_balance_wallet),
             tooltip: 'Wallet',
             onPressed: () {
@@ -189,10 +230,6 @@ class _ProfileScreenState extends State<ProfileScreen>
             onPressed: () => QuickReferenceCard.show(context),
           ),
           IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadData,
-          ),
-          IconButton(
             icon: const Icon(Icons.settings),
             onPressed: _showSettings,
           ),
@@ -202,12 +239,8 @@ class _ProfileScreenState extends State<ProfileScreen>
           indicatorColor: Colors.white,
           tabs: [
             Tab(
-              icon: const Icon(Icons.location_city),
-              text: 'Delhi (${_delhiMarkers.length})',
-            ),
-            Tab(
-              icon: const Icon(Icons.location_city),
-              text: 'Hyd (${_hydMarkers.length})',
+              icon: const Icon(Icons.my_location),
+              text: '$_currentCity (${_cityMarkers.length})',
             ),
             const Tab(
               icon: Icon(Icons.leaderboard),
@@ -236,8 +269,7 @@ class _ProfileScreenState extends State<ProfileScreen>
             child: TabBarView(
               controller: _tabController,
               children: [
-                _buildCityView('delhi', CityBounds.delhi),
-                _buildCityView('hyderabad', CityBounds.hyderabad),
+                _buildCityView(),
                 _buildLeaderboardView(),
               ],
             ),
@@ -263,7 +295,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     final profile = _auth.profile;
     if (profile == null) return const SizedBox();
 
-    final totalMarkers = _delhiMarkers.length + _hydMarkers.length;
+    final totalMarkers = _cityMarkers.length;
     final isGoogle = profile.authProvider == AuthProvider.google;
 
     return Stack(
@@ -346,16 +378,26 @@ class _ProfileScreenState extends State<ProfileScreen>
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    if (profile.email.isNotEmpty)
-                      Text(
-                        profile.email,
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.7),
-                          fontSize: 12,
+                    Row(
+                      children: [
+                        const Icon(Icons.location_on, color: Colors.white70, size: 14),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            _currentCountry.isNotEmpty
+                                ? '$_currentCity, $_currentCountry'
+                                : _currentCity,
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.8),
+                              fontSize: 12,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                      ),
+                      ],
+                    ),
                     Text(
-                      'Total Markers: $totalMarkers',
+                      'Markers: $totalMarkers',
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.8),
                       ),
@@ -364,22 +406,6 @@ class _ProfileScreenState extends State<ProfileScreen>
                 ),
               ),
 
-              // Stats
-              Column(
-                children: [
-                  _StatBadge(
-                    label: 'Delhi',
-                    value: _delhiMarkers.length.toString(),
-                    color: Colors.blue,
-                  ),
-                  const SizedBox(height: 4),
-                  _StatBadge(
-                    label: 'Hyd',
-                    value: _hydMarkers.length.toString(),
-                    color: Colors.green,
-                  ),
-                ],
-              ),
             ],
           ),
 
@@ -495,17 +521,16 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildCityView(String city, CityConfig config) {
-    final markers = city == 'delhi' ? _delhiMarkers : _hydMarkers;
-    final playerMarkers = markers
+  Widget _buildCityView() {
+    final playerMarkers = _cityMarkers
         .where((m) => m.playerId == _auth.playerId)
         .toList();
-    final otherMarkers = markers
+    final otherMarkers = _cityMarkers
         .where((m) => m.playerId != _auth.playerId)
         .toList();
 
     // Count unique players: current user (1) + other unique players from markers
-    final otherPlayerIds = markers
+    final otherPlayerIds = _cityMarkers
         .where((m) => m.playerId != _auth.playerId)
         .map((m) => m.playerId)
         .toSet();
@@ -517,7 +542,7 @@ class _ProfileScreenState extends State<ProfileScreen>
 
     return Column(
       children: [
-        // Live player count
+        // Live player count and city info
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           color: Colors.black87,
@@ -530,8 +555,10 @@ class _ProfileScreenState extends State<ProfileScreen>
                 style: TextStyle(color: Colors.white.withOpacity(0.7)),
               ),
               const Spacer(),
+              const Icon(Icons.location_on, color: Colors.amber, size: 18),
+              const SizedBox(width: 4),
               Text(
-                '${config.emoji} ${config.name}',
+                _currentCity,
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -549,7 +576,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               FlutterMap(
                 mapController: _mapController,
                 options: MapOptions(
-                  initialCenter: _currentLocation ?? config.center,
+                  initialCenter: _currentLocation ?? const LatLng(0, 0),
                   initialZoom: _currentLocation != null ? 18 : 12,
                   minZoom: 10,
                   maxZoom: 19,
@@ -561,19 +588,6 @@ class _ProfileScreenState extends State<ProfileScreen>
                     userAgentPackageName: 'com.gpsrunner.web3',
                     tileSize: MapConfig.hasValidToken ? 512 : 256,
                     zoomOffset: MapConfig.hasValidToken ? -1 : 0,
-                  ),
-
-                  // Landmark circles
-                  CircleLayer(
-                    circles: config.landmarks.map((l) {
-                      return CircleMarker(
-                        point: l.location,
-                        radius: 20,
-                        color: Colors.amber.withOpacity(0.3),
-                        borderColor: Colors.amber,
-                        borderStrokeWidth: 2,
-                      );
-                    }).toList(),
                   ),
 
                   // Current location circle (accuracy indicator)
@@ -796,81 +810,102 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   Widget _buildMarkerList(List<GPSMarker> markers) {
     if (markers.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.flag, size: 48, color: Colors.grey.shade400),
-            const SizedBox(height: 8),
-            Text(
-              'No markers yet',
-              style: TextStyle(color: Colors.grey.shade600),
+      return RefreshIndicator(
+        onRefresh: _loadData,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: SizedBox(
+            height: 200,
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.flag, size: 48, color: Colors.grey.shade400),
+                  const SizedBox(height: 8),
+                  Text(
+                    'No markers yet',
+                    style: TextStyle(color: Colors.grey.shade600),
+                  ),
+                  const Text(
+                    'Start running to place markers!',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Pull down to refresh',
+                    style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                  ),
+                ],
+              ),
             ),
-            const Text(
-              'Start running to place markers!',
-              style: TextStyle(color: Colors.grey),
-            ),
-          ],
+          ),
         ),
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(8),
-      itemCount: markers.length,
-      itemBuilder: (context, index) {
-        final marker = markers[index];
-        final time = DateTime.fromMillisecondsSinceEpoch(marker.timestamp);
-        final timeAgo = _formatTimeAgo(time);
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(8),
+        itemCount: markers.length,
+        itemBuilder: (context, index) {
+          final marker = markers[index];
+          final time = DateTime.fromMillisecondsSinceEpoch(marker.timestamp);
+          final timeAgo = _formatTimeAgo(time);
 
-        return Card(
-          child: ListTile(
-            leading: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: Color(int.parse(marker.color.replaceFirst('#', '0xFF'))),
-                borderRadius: BorderRadius.circular(8),
+          return Card(
+            child: ListTile(
+              leading: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Color(int.parse(marker.color.replaceFirst('#', '0xFF'))),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.flag, color: Colors.white),
               ),
-              child: const Icon(Icons.flag, color: Colors.white),
+              title: Text(marker.landmarkName),
+              subtitle: Text(
+                '$timeAgo • ${marker.speedKmh.toStringAsFixed(1)} km/h',
+              ),
+              trailing: marker.syncedToChain
+                  ? const Icon(Icons.verified, color: Colors.green)
+                  : const Icon(Icons.cloud_upload, color: Colors.orange),
             ),
-            title: Text(marker.landmarkName),
-            subtitle: Text(
-              '$timeAgo • ${marker.speedKmh.toStringAsFixed(1)} km/h',
-            ),
-            trailing: marker.syncedToChain
-                ? const Icon(Icons.verified, color: Colors.green)
-                : const Icon(Icons.cloud_upload, color: Colors.orange),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
   Widget _buildLeaderboardView() {
-    return DefaultTabController(
-      length: 2,
-      child: Column(
-        children: [
-          TabBar(
-            indicatorColor: Colors.blue,
-            labelColor: Colors.blue,
-            unselectedLabelColor: Colors.grey,
-            tabs: const [
-              Tab(text: 'Delhi'),
-              Tab(text: 'Hyderabad'),
+    return Column(
+      children: [
+        // City header
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          color: Colors.black87,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.emoji_events, color: Colors.amber, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                '$_currentCity Leaderboard',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
             ],
           ),
-          Expanded(
-            child: TabBarView(
-              children: [
-                _buildLeaderboard(_delhiLeaderboard, Colors.blue),
-                _buildLeaderboard(_hydLeaderboard, Colors.green),
-              ],
-            ),
-          ),
-        ],
-      ),
+        ),
+        Expanded(
+          child: _buildLeaderboard(_cityLeaderboard, Colors.blue),
+        ),
+      ],
     );
   }
 
@@ -879,62 +914,85 @@ class _ProfileScreenState extends State<ProfileScreen>
     Color color,
   ) {
     if (leaderboard.isEmpty) {
-      return const Center(
-        child: Text('No data yet'),
+      return RefreshIndicator(
+        onRefresh: _loadData,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: SizedBox(
+            height: 200,
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('No data yet'),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Pull down to refresh',
+                    style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: leaderboard.length,
-      itemBuilder: (context, index) {
-        final entry = leaderboard[index];
-        final isCurrentUser = entry.key == _auth.playerName;
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        itemCount: leaderboard.length,
+        itemBuilder: (context, index) {
+          final entry = leaderboard[index];
+          final isCurrentUser = entry.key == _auth.playerName;
 
-        return Card(
-          color: isCurrentUser ? color.withOpacity(0.1) : null,
-          child: ListTile(
-            leading: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: index < 3 ? _getRankColor(index) : Colors.grey,
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  '${index + 1}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
+          return Card(
+            color: isCurrentUser ? color.withOpacity(0.1) : null,
+            child: ListTile(
+              leading: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: index < 3 ? _getRankColor(index) : Colors.grey,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    '${index + 1}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ),
-            ),
-            title: Text(
-              entry.key,
-              style: TextStyle(
-                fontWeight: isCurrentUser ? FontWeight.bold : FontWeight.normal,
-                color: isCurrentUser ? color : null,
+              title: Text(
+                entry.key,
+                style: TextStyle(
+                  fontWeight: isCurrentUser ? FontWeight.bold : FontWeight.normal,
+                  color: isCurrentUser ? color : null,
+                ),
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.flag, size: 16),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${entry.value}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                ],
               ),
             ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.flag, size: 16),
-                const SizedBox(width: 4),
-                Text(
-                  '${entry.value}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
@@ -1131,7 +1189,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   void _signOut() async {
-    Navigator.pop(context);
+    Navigator.pop(context); // Close settings drawer
 
     final confirm = await showDialog<bool>(
       context: context,
@@ -1157,7 +1215,11 @@ class _ProfileScreenState extends State<ProfileScreen>
     if (confirm == true) {
       await _auth.signOut();
       if (mounted) {
-        Navigator.of(context).popUntil((route) => route.isFirst);
+        // Navigate to login screen and clear all routes
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (route) => false,
+        );
       }
     }
   }
@@ -1268,47 +1330,5 @@ class _ProfileScreenState extends State<ProfileScreen>
     _tabController.dispose();
     _locationSubscription?.cancel();
     super.dispose();
-  }
-}
-
-class _StatBadge extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-
-  const _StatBadge({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(color: color, fontSize: 12),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

@@ -194,7 +194,15 @@ class AuthService extends ChangeNotifier {
           await _loadProfile(currentUser.uid);
           _state = AuthState.authenticated;
         } else {
-          _state = AuthState.unauthenticated;
+          // Check for local guest user
+          final prefs = await SharedPreferences.getInstance();
+          final localUserId = prefs.getString(_localUserIdKey);
+          if (localUserId != null) {
+            await _loadProfile(localUserId);
+            _state = AuthState.authenticated;
+          } else {
+            _state = AuthState.unauthenticated;
+          }
         }
       } else {
         final prefs = await SharedPreferences.getInstance();
@@ -302,7 +310,7 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  /// Sign in anonymously
+  /// Sign in anonymously (Guest mode)
   Future<bool> signInAnonymously() async {
     _state = AuthState.checking;
     _errorMessage = null;
@@ -311,41 +319,58 @@ class AuthService extends ChangeNotifier {
     try {
       String userId;
 
+      // Try Firebase anonymous auth first
       if (_firebaseAvailable && _auth != null) {
-        final result = await _auth!.signInAnonymously();
-        final user = result.user;
-        if (user == null) {
-          _state = AuthState.error;
-          _errorMessage = 'Sign in failed';
-          notifyListeners();
-          return false;
+        try {
+          final result = await _auth!.signInAnonymously();
+          final user = result.user;
+          if (user != null) {
+            userId = user.uid;
+          } else {
+            // Firebase returned null user, fall back to local
+            userId = await _getOrCreateLocalUserId();
+          }
+        } catch (firebaseError) {
+          // Firebase failed, fall back to local auth
+          debugPrint('Firebase anonymous auth failed, using local: $firebaseError');
+          userId = await _getOrCreateLocalUserId();
         }
-        userId = user.uid;
       } else {
-        final prefs = await SharedPreferences.getInstance();
-        var localId = prefs.getString(_localUserIdKey);
-        if (localId == null) {
-          localId = const Uuid().v4();
-          await prefs.setString(_localUserIdKey, localId);
-        }
-        userId = localId;
+        // No Firebase, use local auth
+        userId = await _getOrCreateLocalUserId();
       }
 
       await _loadProfile(userId);
       _state = AuthState.authenticated;
       notifyListeners();
       return true;
-    } on FirebaseAuthException catch (e) {
-      _state = AuthState.error;
-      _errorMessage = e.message ?? 'Authentication failed';
-      notifyListeners();
-      return false;
     } catch (e) {
-      _state = AuthState.error;
-      _errorMessage = e.toString();
-      notifyListeners();
-      return false;
+      debugPrint('Guest sign in error: $e');
+      // Last resort - try local auth even if everything else failed
+      try {
+        final userId = await _getOrCreateLocalUserId();
+        await _loadProfile(userId);
+        _state = AuthState.authenticated;
+        notifyListeners();
+        return true;
+      } catch (localError) {
+        _state = AuthState.error;
+        _errorMessage = 'Sign in failed: $localError';
+        notifyListeners();
+        return false;
+      }
     }
+  }
+
+  /// Get or create a local user ID for guest mode
+  Future<String> _getOrCreateLocalUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    var localId = prefs.getString(_localUserIdKey);
+    if (localId == null) {
+      localId = 'guest_${const Uuid().v4()}';
+      await prefs.setString(_localUserIdKey, localId);
+    }
+    return localId;
   }
 
   /// Load or create player profile
