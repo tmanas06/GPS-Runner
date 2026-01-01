@@ -43,3 +43,10 @@ app.*.map.json
 # Environment files
 .env
 .env.*
+
+# Node modules
+node_modules/
+
+# Hardhat/Solidity related
+contracts/artifacts/
+contracts/cache/
