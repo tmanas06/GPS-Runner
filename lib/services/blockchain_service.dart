@@ -220,12 +220,12 @@ class BlockchainService extends ChangeNotifier {
   factory BlockchainService() => _instance;
   BlockchainService._internal();
 
-  // RPC Configuration - Public Polygon Amoy Testnet
-  static const String _rpcUrl = 'https://rpc-amoy.polygon.technology';
-  static const String _wsUrl = 'wss://rpc-amoy.polygon.technology';
+  // RPC Configuration - Mantle Sepolia Testnet
+  static const String _rpcUrl = 'https://rpc.sepolia.mantle.xyz';
+  static const String _wsUrl = 'wss://rpc.sepolia.mantle.xyz';
 
-  // Chain ID for Polygon Amoy (Mumbai deprecated, Amoy is new testnet)
-  static const int _chainId = 80002;
+  // Chain ID for Mantle Sepolia
+  static const int _chainId = 5003;
 
   Web3Client? _client;
   WebSocketChannel? _wsChannel;

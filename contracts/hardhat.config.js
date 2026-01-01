@@ -32,6 +32,12 @@ module.exports = {
       chainId: 80002,
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
     },
+    mantleSepolia: {
+      url: process.env.MANTLE_SEPOLIA_RPC || "https://rpc.sepolia.mantle.xyz",
+      chainId: 5003,
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      gasPrice: 20000000, // 0.02 gwei - Mantle has low gas fees
+    },
   },
   gasReporter: {
     enabled: true,

@@ -50,3 +50,4 @@ node_modules/
 # Hardhat/Solidity related
 contracts/artifacts/
 contracts/cache/
+contracts/.env

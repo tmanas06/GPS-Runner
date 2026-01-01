@@ -413,8 +413,8 @@ contract IndiaRunner {
     }
 
     function getPlayerStats(address _player) external view returns (
-        uint256 totalMarkers,
-        uint256 totalDistanceMeters,
+        uint256 markers,
+        uint256 distanceMeters,
         bytes32 homeState,
         bytes32 homeCity,
         bool isRegistered

@@ -128,9 +128,9 @@ String _hashString(String input) {
 
 /// India bounds and configuration manager
 class CityBounds {
-  // Unified India contract address - UPDATE AFTER DEPLOYMENT
+  // Unified India contract address - Deployed on Mantle Sepolia
   static const String indiaContractAddress =
-      '0x0000000000000000000000000000000000000000'; // TODO: Update after deploy
+      '0x94ec3cA5359A20f01912f4F7e4D464C8A52f467b';
 
   // Legacy contract addresses (for migration)
   static const String delhiContractAddress =
