@@ -16,13 +16,15 @@ enum ChainState {
   error,
 }
 
-/// Contract ABI for GPS Runner
-const String _runnerContractABI = '''
+/// Contract ABI for IndiaRunner (unified contract)
+const String _indiaRunnerABI = '''
 [
   {
     "inputs": [
       {"name": "_lat1e6", "type": "uint256"},
       {"name": "_lng1e6", "type": "uint256"},
+      {"name": "_stateHash", "type": "bytes32"},
+      {"name": "_cityHash", "type": "bytes32"},
       {"name": "_landmark", "type": "string"},
       {"name": "_activityType", "type": "uint8"},
       {"name": "_speedKmh", "type": "uint16"},
@@ -35,8 +37,73 @@ const String _runnerContractABI = '''
   },
   {
     "inputs": [{"name": "_player", "type": "address"}],
+    "name": "getPlayerStats",
+    "outputs": [
+      {"name": "totalMarkers", "type": "uint256"},
+      {"name": "totalDistanceMeters", "type": "uint256"},
+      {"name": "homeState", "type": "bytes32"},
+      {"name": "homeCity", "type": "bytes32"},
+      {"name": "isRegistered", "type": "bool"}
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{"name": "_player", "type": "address"}],
     "name": "getPlayerMarkerCount",
     "outputs": [{"name": "", "type": "uint256"}],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{"name": "_player", "type": "address"}],
+    "name": "getPlayerDistance",
+    "outputs": [{"name": "", "type": "uint256"}],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {"name": "_player", "type": "address"},
+      {"name": "_cityHash", "type": "bytes32"}
+    ],
+    "name": "getPlayerCityMarkerCount",
+    "outputs": [{"name": "", "type": "uint256"}],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{"name": "_cityHash", "type": "bytes32"}],
+    "name": "getCityStats",
+    "outputs": [
+      {"name": "totalMarkers", "type": "uint256"},
+      {"name": "totalPlayers", "type": "uint256"},
+      {"name": "lastActivity", "type": "uint256"}
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{"name": "_limit", "type": "uint256"}],
+    "name": "getGlobalLeaderboard",
+    "outputs": [
+      {"name": "players", "type": "address[]"},
+      {"name": "markerCounts", "type": "uint256[]"},
+      {"name": "distances", "type": "uint256[]"}
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {"name": "_cityHash", "type": "bytes32"},
+      {"name": "_limit", "type": "uint256"}
+    ],
+    "name": "getCityLeaderboard",
+    "outputs": [
+      {"name": "players", "type": "address[]"},
+      {"name": "markerCounts", "type": "uint256[]"}
+    ],
     "stateMutability": "view",
     "type": "function"
   },
@@ -47,6 +114,7 @@ const String _runnerContractABI = '''
       {"name": "player", "type": "address"},
       {"name": "lat1e6", "type": "uint256"},
       {"name": "lng1e6", "type": "uint256"},
+      {"name": "cityHash", "type": "bytes32"},
       {"name": "landmark", "type": "string"},
       {"name": "timestamp", "type": "uint256"}
     ],
@@ -61,19 +129,90 @@ const String _runnerContractABI = '''
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "totalPlayersCount",
+    "outputs": [{"name": "", "type": "uint256"}],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "totalDistanceMeters",
+    "outputs": [{"name": "", "type": "uint256"}],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "anonymous": false,
     "inputs": [
       {"indexed": true, "name": "player", "type": "address"},
+      {"indexed": true, "name": "stateHash", "type": "bytes32"},
+      {"indexed": true, "name": "cityHash", "type": "bytes32"},
+      {"indexed": false, "name": "timestamp", "type": "uint256"}
+    ],
+    "name": "PlayerRegistered",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {"indexed": true, "name": "player", "type": "address"},
+      {"indexed": true, "name": "cityHash", "type": "bytes32"},
       {"indexed": false, "name": "lat1e6", "type": "uint256"},
       {"indexed": false, "name": "lng1e6", "type": "uint256"},
       {"indexed": false, "name": "landmark", "type": "string"},
+      {"indexed": false, "name": "distanceMeters", "type": "uint256"},
       {"indexed": false, "name": "timestamp", "type": "uint256"}
     ],
     "name": "MarkerAdded",
     "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {"indexed": true, "name": "player", "type": "address"},
+      {"indexed": false, "name": "distanceMeters", "type": "uint256"},
+      {"indexed": false, "name": "totalDistance", "type": "uint256"}
+    ],
+    "name": "DistanceRecorded",
+    "type": "event"
   }
 ]
 ''';
+
+/// Player stats from blockchain
+class PlayerBlockchainStats {
+  final int totalMarkers;
+  final int totalDistanceMeters;
+  final String homeState;
+  final String homeCity;
+  final bool isRegistered;
+
+  PlayerBlockchainStats({
+    required this.totalMarkers,
+    required this.totalDistanceMeters,
+    required this.homeState,
+    required this.homeCity,
+    required this.isRegistered,
+  });
+
+  double get totalDistanceKm => totalDistanceMeters / 1000.0;
+}
+
+/// Leaderboard entry
+class LeaderboardEntry {
+  final String address;
+  final int markerCount;
+  final int distanceMeters;
+
+  LeaderboardEntry({
+    required this.address,
+    required this.markerCount,
+    this.distanceMeters = 0,
+  });
+
+  double get distanceKm => distanceMeters / 1000.0;
+}
 
 /// Blockchain service for Polygon Mumbai
 class BlockchainService extends ChangeNotifier {
@@ -82,10 +221,8 @@ class BlockchainService extends ChangeNotifier {
   BlockchainService._internal();
 
   // RPC Configuration - Public Polygon Amoy Testnet
-  static const String _rpcUrl =
-      'https://rpc-amoy.polygon.technology';
-  static const String _wsUrl =
-      'wss://rpc-amoy.polygon.technology';
+  static const String _rpcUrl = 'https://rpc-amoy.polygon.technology';
+  static const String _wsUrl = 'wss://rpc-amoy.polygon.technology';
 
   // Chain ID for Polygon Amoy (Mumbai deprecated, Amoy is new testnet)
   static const int _chainId = 80002;
@@ -99,13 +236,11 @@ class BlockchainService extends ChangeNotifier {
   EthPrivateKey? _credentials;
   EthereumAddress? _address;
 
-  // Contracts
-  DeployedContract? _delhiContract;
-  DeployedContract? _hydContract;
+  // Unified India contract
+  DeployedContract? _indiaContract;
 
   // Event subscriptions
-  StreamSubscription? _delhiEventSub;
-  StreamSubscription? _hydEventSub;
+  StreamSubscription? _eventSub;
 
   // Live markers from events
   final List<GPSMarker> _liveMarkers = [];
@@ -141,17 +276,12 @@ class BlockchainService extends ChangeNotifier {
       _credentials = EthPrivateKey.fromHex(privateKey);
       _address = _credentials!.address;
 
-      // Load contracts
-      final contractAbi = ContractAbi.fromJson(_runnerContractABI, 'GPSRunner');
+      // Load unified India contract
+      final contractAbi = ContractAbi.fromJson(_indiaRunnerABI, 'IndiaRunner');
 
-      _delhiContract = DeployedContract(
+      _indiaContract = DeployedContract(
         contractAbi,
-        EthereumAddress.fromHex(CityBounds.delhiContractAddress),
-      );
-
-      _hydContract = DeployedContract(
-        contractAbi,
-        EthereumAddress.fromHex(CityBounds.hydContractAddress),
+        EthereumAddress.fromHex(CityBounds.indiaContractAddress),
       );
 
       // Connect WebSocket for events (optional, don't fail if it doesn't work)
@@ -179,86 +309,6 @@ class BlockchainService extends ChangeNotifier {
     // Real-time events can be enabled when a proper RPC with WebSocket support is configured
     debugPrint('WebSocket events disabled - using polling for updates');
     return;
-
-    // Original code (disabled):
-    // try {
-    //   _wsChannel = WebSocketChannel.connect(Uri.parse(_wsUrl));
-    //   _subscribeToEvents();
-    // } catch (e) {
-    //   debugPrint('WebSocket error: $e');
-    // }
-  }
-
-  void _subscribeToEvents() {
-    // Listen for MarkerAdded events from both contracts
-    // Wrapped in try-catch to prevent crashes on RPC issues
-    try {
-      if (_delhiContract != null && _client != null) {
-        final markerAddedEvent = _delhiContract!.event('MarkerAdded');
-        _delhiEventSub = _client!
-            .events(FilterOptions.events(
-              contract: _delhiContract!,
-              event: markerAddedEvent,
-            ))
-            .listen(
-              (event) => _handleMarkerEvent(event, 'delhi'),
-              onError: (e) => debugPrint('Delhi event error: $e'),
-            );
-      }
-
-      if (_hydContract != null && _client != null) {
-        final markerAddedEvent = _hydContract!.event('MarkerAdded');
-        _hydEventSub = _client!
-            .events(FilterOptions.events(
-              contract: _hydContract!,
-              event: markerAddedEvent,
-            ))
-            .listen(
-              (event) => _handleMarkerEvent(event, 'hyderabad'),
-              onError: (e) => debugPrint('Hyd event error: $e'),
-            );
-      }
-    } catch (e) {
-      debugPrint('Event subscription error: $e');
-    }
-  }
-
-  void _handleMarkerEvent(FilterEvent event, String city) {
-    try {
-      final decoded = event.topics;
-      if (decoded == null || decoded.isEmpty) return;
-
-      // Parse event data
-      final playerAddress = EthereumAddress.fromHex(decoded[1].toString());
-      final lat1e6 = BigInt.parse(event.data?.substring(0, 66) ?? '0');
-      final lng1e6 = BigInt.parse(event.data?.substring(66, 132) ?? '0');
-
-      final marker = GPSMarker.create(
-        playerId: playerAddress.hex,
-        playerName: _shortenAddress(playerAddress.hex),
-        latitude: lat1e6.toDouble() / 1e6,
-        longitude: lng1e6.toDouble() / 1e6,
-        city: city,
-        color: city == 'delhi' ? '#2196F3' : '#4CAF50',
-        landmarkName: 'On-chain marker',
-        activityProof: 'verified',
-        speedKmh: 0,
-        stepsPerMin: 0,
-        txHash: event.transactionHash ?? '',
-        syncedToChain: true,
-      );
-
-      _liveMarkers.add(marker);
-
-      // Notify callbacks
-      for (final callback in _onNewMarkerCallbacks) {
-        callback(marker);
-      }
-
-      notifyListeners();
-    } catch (e) {
-      debugPrint('Error parsing marker event: $e');
-    }
   }
 
   /// Check if rate limited
@@ -294,24 +344,28 @@ class BlockchainService extends ChangeNotifier {
       return null;
     }
 
-    // Select contract based on city
-    final contract = proof.city == 'delhi' ? _delhiContract : _hydContract;
-    if (contract == null) {
-      debugPrint('Contract not found for city: ${proof.city}');
+    if (_indiaContract == null) {
+      debugPrint('Contract not initialized');
       return null;
     }
 
     try {
-      final submitFunction = contract.function('submitMarker');
+      final submitFunction = _indiaContract!.function('submitMarker');
+
+      // Get state and city hashes
+      final stateHash = _hexToBytes32(CityBounds.getStateHash(proof.stateId));
+      final cityHash = _hexToBytes32(CityBounds.getCityHash(proof.city));
 
       final tx = await _client!.sendTransaction(
         _credentials!,
         Transaction.callContract(
-          contract: contract,
+          contract: _indiaContract!,
           function: submitFunction,
           parameters: [
             BigInt.from(proof.lat1e6),
             BigInt.from(proof.lng1e6),
+            stateHash,
+            cityHash,
             proof.landmarkName ?? 'Unknown',
             BigInt.from(proof.activityType.code),
             BigInt.from(proof.speedInt),
@@ -330,65 +384,197 @@ class BlockchainService extends ChangeNotifier {
     }
   }
 
-  /// Get player marker count
-  Future<int> getPlayerMarkerCount(String city) async {
-    if (!isConnected) return 0;
+  /// Get player stats from blockchain
+  Future<PlayerBlockchainStats?> getPlayerStats([EthereumAddress? player]) async {
+    if (!isConnected || _indiaContract == null) return null;
 
-    final contract = city == 'delhi' ? _delhiContract : _hydContract;
-    if (contract == null || _address == null) return 0;
+    final playerAddress = player ?? _address;
+    if (playerAddress == null) return null;
 
     try {
-      final function = contract.function('getPlayerMarkerCount');
+      final function = _indiaContract!.function('getPlayerStats');
       final result = await _client!.call(
-        contract: contract,
+        contract: _indiaContract!,
         function: function,
-        params: [_address],
+        params: [playerAddress],
       );
-      return (result[0] as BigInt).toInt();
+
+      return PlayerBlockchainStats(
+        totalMarkers: (result[0] as BigInt).toInt(),
+        totalDistanceMeters: (result[1] as BigInt).toInt(),
+        homeState: _bytes32ToHex(result[2]),
+        homeCity: _bytes32ToHex(result[3]),
+        isRegistered: result[4] as bool,
+      );
+    } catch (e) {
+      debugPrint('Error getting player stats: $e');
+      return null;
+    }
+  }
+
+  /// Get player marker count
+  Future<int> getPlayerMarkerCount([String? city]) async {
+    if (!isConnected || _indiaContract == null) return 0;
+
+    try {
+      if (city != null) {
+        // City-specific count
+        final function = _indiaContract!.function('getPlayerCityMarkerCount');
+        final cityHash = _hexToBytes32(CityBounds.getCityHash(city));
+        final result = await _client!.call(
+          contract: _indiaContract!,
+          function: function,
+          params: [_address, cityHash],
+        );
+        return (result[0] as BigInt).toInt();
+      } else {
+        // Total count
+        final function = _indiaContract!.function('getPlayerMarkerCount');
+        final result = await _client!.call(
+          contract: _indiaContract!,
+          function: function,
+          params: [_address],
+        );
+        return (result[0] as BigInt).toInt();
+      }
     } catch (e) {
       debugPrint('Error getting marker count: $e');
       return 0;
     }
   }
 
-  /// Get total markers in city
-  Future<int> getTotalMarkers(String city) async {
-    if (!isConnected) return 0;
-
-    final contract = city == 'delhi' ? _delhiContract : _hydContract;
-    if (contract == null) return 0;
+  /// Get player total distance
+  Future<int> getPlayerDistance() async {
+    if (!isConnected || _indiaContract == null || _address == null) return 0;
 
     try {
-      final function = contract.function('getTotalMarkers');
+      final function = _indiaContract!.function('getPlayerDistance');
       final result = await _client!.call(
-        contract: contract,
+        contract: _indiaContract!,
         function: function,
-        params: [],
+        params: [_address],
       );
       return (result[0] as BigInt).toInt();
+    } catch (e) {
+      debugPrint('Error getting player distance: $e');
+      return 0;
+    }
+  }
+
+  /// Get total markers
+  Future<int> getTotalMarkers([String? city]) async {
+    if (!isConnected || _indiaContract == null) return 0;
+
+    try {
+      if (city != null) {
+        // City stats
+        final function = _indiaContract!.function('getCityStats');
+        final cityHash = _hexToBytes32(CityBounds.getCityHash(city));
+        final result = await _client!.call(
+          contract: _indiaContract!,
+          function: function,
+          params: [cityHash],
+        );
+        return (result[0] as BigInt).toInt();
+      } else {
+        // Total
+        final function = _indiaContract!.function('getTotalMarkers');
+        final result = await _client!.call(
+          contract: _indiaContract!,
+          function: function,
+          params: [],
+        );
+        return (result[0] as BigInt).toInt();
+      }
     } catch (e) {
       debugPrint('Error getting total markers: $e');
       return 0;
     }
   }
 
-  /// Get all markers for a city
-  Future<List<GPSMarker>> getAllMarkers(String city) async {
-    if (!isConnected) return [];
-
-    final contract = city == 'delhi' ? _delhiContract : _hydContract;
-    if (contract == null) return [];
-
-    final markers = <GPSMarker>[];
-    final total = await getTotalMarkers(city);
+  /// Get global leaderboard
+  Future<List<LeaderboardEntry>> getGlobalLeaderboard({int limit = 20}) async {
+    if (!isConnected || _indiaContract == null) return [];
 
     try {
-      final function = contract.function('getMarkerByIndex');
+      final function = _indiaContract!.function('getGlobalLeaderboard');
+      final result = await _client!.call(
+        contract: _indiaContract!,
+        function: function,
+        params: [BigInt.from(limit)],
+      );
 
-      for (int i = 0; i < total && i < 100; i++) {
-        // Limit to 100
+      final players = result[0] as List;
+      final markerCounts = result[1] as List;
+      final distances = result[2] as List;
+
+      final entries = <LeaderboardEntry>[];
+      for (int i = 0; i < players.length; i++) {
+        final addr = players[i] as EthereumAddress;
+        if (addr.hex != '0x0000000000000000000000000000000000000000') {
+          entries.add(LeaderboardEntry(
+            address: addr.hex,
+            markerCount: (markerCounts[i] as BigInt).toInt(),
+            distanceMeters: (distances[i] as BigInt).toInt(),
+          ));
+        }
+      }
+
+      return entries;
+    } catch (e) {
+      debugPrint('Error getting global leaderboard: $e');
+      return [];
+    }
+  }
+
+  /// Get city leaderboard
+  Future<List<LeaderboardEntry>> getCityLeaderboard(String cityId, {int limit = 20}) async {
+    if (!isConnected || _indiaContract == null) return [];
+
+    try {
+      final function = _indiaContract!.function('getCityLeaderboard');
+      final cityHash = _hexToBytes32(CityBounds.getCityHash(cityId));
+
+      final result = await _client!.call(
+        contract: _indiaContract!,
+        function: function,
+        params: [cityHash, BigInt.from(limit)],
+      );
+
+      final players = result[0] as List;
+      final markerCounts = result[1] as List;
+
+      final entries = <LeaderboardEntry>[];
+      for (int i = 0; i < players.length; i++) {
+        final addr = players[i] as EthereumAddress;
+        if (addr.hex != '0x0000000000000000000000000000000000000000') {
+          entries.add(LeaderboardEntry(
+            address: addr.hex,
+            markerCount: (markerCounts[i] as BigInt).toInt(),
+          ));
+        }
+      }
+
+      return entries;
+    } catch (e) {
+      debugPrint('Error getting city leaderboard: $e');
+      return [];
+    }
+  }
+
+  /// Get all markers (paginated)
+  Future<List<GPSMarker>> getAllMarkers({int start = 0, int limit = 100}) async {
+    if (!isConnected || _indiaContract == null) return [];
+
+    final markers = <GPSMarker>[];
+    final total = await getTotalMarkers();
+
+    try {
+      final function = _indiaContract!.function('getMarkerByIndex');
+
+      for (int i = start; i < total && i < start + limit; i++) {
         final result = await _client!.call(
-          contract: contract,
+          contract: _indiaContract!,
           function: function,
           params: [BigInt.from(i)],
         );
@@ -396,16 +582,17 @@ class BlockchainService extends ChangeNotifier {
         final playerAddress = result[0] as EthereumAddress;
         final lat1e6 = result[1] as BigInt;
         final lng1e6 = result[2] as BigInt;
-        final landmark = result[3] as String;
-        final timestamp = result[4] as BigInt;
+        final cityHash = result[3];
+        final landmark = result[4] as String;
+        final timestamp = result[5] as BigInt;
 
         markers.add(GPSMarker.create(
           playerId: playerAddress.hex,
           playerName: _shortenAddress(playerAddress.hex),
           latitude: lat1e6.toDouble() / 1e6,
           longitude: lng1e6.toDouble() / 1e6,
-          city: city,
-          color: city == 'delhi' ? '#2196F3' : '#4CAF50',
+          city: 'india', // We'd need reverse lookup for city
+          color: '#4CAF50',
           landmarkName: landmark,
           activityProof: 'verified',
           speedKmh: 0,
@@ -448,10 +635,31 @@ class BlockchainService extends ChangeNotifier {
     return '${address.substring(0, 6)}...${address.substring(address.length - 4)}';
   }
 
+  /// Convert hex string to bytes32
+  List<int> _hexToBytes32(String hex) {
+    final cleanHex = hex.startsWith('0x') ? hex.substring(2) : hex;
+    final bytes = <int>[];
+    for (int i = 0; i < cleanHex.length; i += 2) {
+      bytes.add(int.parse(cleanHex.substring(i, i + 2), radix: 16));
+    }
+    // Ensure it's exactly 32 bytes
+    while (bytes.length < 32) {
+      bytes.add(0);
+    }
+    return bytes;
+  }
+
+  /// Convert bytes32 to hex string
+  String _bytes32ToHex(dynamic bytes) {
+    if (bytes is List<int>) {
+      return '0x${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
+    }
+    return bytes.toString();
+  }
+
   /// Disconnect from blockchain
   Future<void> disconnect() async {
-    _delhiEventSub?.cancel();
-    _hydEventSub?.cancel();
+    _eventSub?.cancel();
     _wsChannel?.sink.close();
     _client?.dispose();
 

@@ -37,6 +37,7 @@ class GPSProof {
   final ActivityType activityType;
   final int timestamp;
   final String playerId;
+  final String stateId;
   final String city;
   final String? landmarkName;
   late final String signature;
@@ -51,6 +52,7 @@ class GPSProof {
     required this.activityType,
     required this.timestamp,
     required this.playerId,
+    required this.stateId,
     required this.city,
     this.landmarkName,
   }) : speedKmh = speed * 3.6 {
@@ -110,6 +112,7 @@ class GPSProof {
         'activityType': activityType.code,
         'timestamp': timestamp,
         'playerId': playerId,
+        'stateId': stateId,
         'city': city,
         'landmarkName': landmarkName,
         'signature': signature,
@@ -126,7 +129,8 @@ class GPSProof {
       activityType: ActivityType.fromCode(json['activityType'] ?? 6),
       timestamp: json['timestamp'] ?? DateTime.now().millisecondsSinceEpoch,
       playerId: json['playerId'] ?? '',
-      city: json['city'] ?? 'delhi',
+      stateId: json['stateId'] ?? 'delhi',
+      city: json['city'] ?? 'new_delhi',
       landmarkName: json['landmarkName'],
     );
   }

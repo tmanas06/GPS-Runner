@@ -58,6 +58,7 @@ class GPSData {
       activityType: activityType,
       timestamp: timestamp.millisecondsSinceEpoch,
       playerId: playerId,
+      stateId: city?.stateId ?? 'unknown',
       city: city?.id ?? 'unknown',
       landmarkName: nearestLandmark?.name,
     );
