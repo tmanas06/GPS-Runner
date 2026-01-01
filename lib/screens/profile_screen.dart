@@ -179,7 +179,7 @@ class _ProfileScreenState extends State<ProfileScreen>
 
       // Try to fetch from chain
       if (_blockchain.isConnected) {
-        final chainMarkers = await _blockchain.getAllMarkers(cityKey);
+        final chainMarkers = await _blockchain.getAllMarkers();
 
         // Merge with local markers (avoid duplicates)
         for (final marker in chainMarkers) {

@@ -129,24 +129,24 @@ class _CitySelectorScreenState extends State<CitySelectorScreen>
               ),
               const SizedBox(height: 16),
 
-              // City cards
+              // City cards - show major cities from different states
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Row(
                   children: [
                     Expanded(
                       child: _CityCard(
-                        city: CityBounds.delhi,
-                        isSelected: _detectedCity?.id == 'delhi',
-                        onTap: () => widget.onCitySelected(CityBounds.delhi),
+                        city: CityBounds.delhi.cities.first, // New Delhi
+                        isSelected: _detectedCity?.stateId == 'delhi',
+                        onTap: () => widget.onCitySelected(CityBounds.delhi.cities.first),
                       ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
                       child: _CityCard(
-                        city: CityBounds.hyderabad,
-                        isSelected: _detectedCity?.id == 'hyderabad',
-                        onTap: () => widget.onCitySelected(CityBounds.hyderabad),
+                        city: CityBounds.telangana.cities.first, // Hyderabad
+                        isSelected: _detectedCity?.stateId == 'telangana',
+                        onTap: () => widget.onCitySelected(CityBounds.telangana.cities.first),
                       ),
                     ),
                   ],
@@ -279,7 +279,7 @@ class _CitySelectorScreenState extends State<CitySelectorScreen>
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 48),
           child: Text(
-            _error ?? 'You appear to be outside Delhi/Hyderabad.',
+            _error ?? 'You appear to be outside supported cities in India.',
             textAlign: TextAlign.center,
             style: const TextStyle(
               color: Colors.white70,
@@ -289,7 +289,7 @@ class _CitySelectorScreenState extends State<CitySelectorScreen>
         ),
         const SizedBox(height: 24),
         ElevatedButton.icon(
-          onPressed: () => widget.onCitySelected(CityBounds.delhi),
+          onPressed: () => widget.onCitySelected(CityBounds.delhi.cities.first),
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.blue.shade700,
             foregroundColor: Colors.white,
@@ -300,7 +300,7 @@ class _CitySelectorScreenState extends State<CitySelectorScreen>
           ),
           icon: const Icon(Icons.arrow_forward),
           label: const Text(
-            'Continue with Delhi',
+            'Continue with New Delhi',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
