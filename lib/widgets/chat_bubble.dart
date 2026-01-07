@@ -89,30 +89,36 @@ class ChatBubble extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(width: 6),
-                            Text(
-                              message.senderName,
-                              style: TextStyle(
-                                color: _senderColor,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
+                            Flexible(
+                              child: Text(
+                                message.senderName,
+                                style: TextStyle(
+                                  color: _senderColor,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             if (message.senderCity.isNotEmpty) ...[
                               const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 1,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  message.senderCity,
-                                  style: TextStyle(
-                                    color: Colors.grey.shade400,
-                                    fontSize: 10,
+                              Flexible(
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 1,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    message.senderCity,
+                                    style: TextStyle(
+                                      color: Colors.grey.shade400,
+                                      fontSize: 10,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
                               ),

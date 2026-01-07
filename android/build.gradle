@@ -23,6 +23,17 @@ subprojects {
     project.evaluationDependsOn(':app')
 }
 
+// Fix namespace for subprojects (AGP 8+ compatibility)
+subprojects { subproject ->
+    subproject.plugins.withId("com.android.library") {
+        subproject.android {
+            if (namespace == null || namespace == "") {
+                namespace = "dev.isar.${subproject.name.replace('-', '_').replace(':', '.')}"
+            }
+        }
+    }
+}
+
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }

@@ -17,6 +17,7 @@ import 'user_profile_screen.dart';
 import 'wallet_screen.dart';
 import 'chat_list_screen.dart';
 import 'login_screen.dart';
+import 'analytics_screen.dart';
 
 /// Profile screen with dual-city map and leaderboards
 class ProfileScreen extends StatefulWidget {
@@ -225,6 +226,16 @@ class _ProfileScreenState extends State<ProfileScreen>
             },
           ),
           IconButton(
+            icon: const Icon(Icons.analytics_outlined),
+            tooltip: 'Analytics',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AnalyticsScreen()),
+              );
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.help_outline),
             tooltip: 'How to Play',
             onPressed: () => QuickReferenceCard.show(context),
@@ -377,6 +388,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                     Row(
                       children: [
@@ -441,6 +453,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                         fontSize: 12,
                         fontFamily: 'monospace',
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   if (_blockchain.isConnected)

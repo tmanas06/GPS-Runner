@@ -1,0 +1,8 @@
+name = "gps-runner-api"
+main = "src/worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+# Non-sensitive vars here
+
+# Add secret via: npx wrangler secret put SIGNER_PRIVATE_KEY

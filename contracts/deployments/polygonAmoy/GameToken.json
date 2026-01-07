@@ -1,0 +1,10 @@
+{
+  "network": "polygonAmoy",
+  "chainId": 80002,
+  "tokenName": "GPS Game Polygon",
+  "tokenSymbol": "gPOL",
+  "address": "0x89586D8FF2A671F5951AdCf9222ac93C52cF4DF5",
+  "deployer": "0xB4cd671bd612C996A21F48170e30382449FFD864",
+  "timestamp": "2026-01-07T07:58:05.845Z",
+  "blockNumber": 31880036
+}

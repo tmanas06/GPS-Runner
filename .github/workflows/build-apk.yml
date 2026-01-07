@@ -1,0 +1,65 @@
+name: Build Android APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      backend_url:
+        description: 'Backend API URL'
+        required: true
+        default: 'https://gps-runner-api.YOUR_SUBDOMAIN.workers.dev'
+
+env:
+  BACKEND_URL: ${{ github.event.inputs.backend_url || 'https://gps-runner-api.YOUR_SUBDOMAIN.workers.dev' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Generate code
+        run: flutter pub run build_runner build --delete-conflicting-outputs
+
+      - name: Build APK
+        run: flutter build apk --release --dart-define=BACKEND_URL=${{ env.BACKEND_URL }}
+
+      - name: Build App Bundle
+        run: flutter build appbundle --release --dart-define=BACKEND_URL=${{ env.BACKEND_URL }}
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload App Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-bundle
+          path: build/app/outputs/bundle/release/app-release.aab
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab

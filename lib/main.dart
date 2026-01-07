@@ -10,11 +10,16 @@ import 'services/blockchain_service.dart';
 import 'services/anti_cheat.dart';
 import 'services/isar_db.dart';
 import 'services/auth_service.dart';
+import 'services/coverage_service.dart';
+import 'services/chat_service.dart';
+import 'services/rwa_service.dart';
+import 'services/footprint_service.dart';
 import 'screens/runner_screen.dart';
 import 'screens/city_selector.dart';
 import 'screens/login_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/how_to_play_screen.dart';
+import 'screens/leaderboard_screen.dart';
 import 'models/city_bounds.dart';
 
 void main() async {
@@ -83,6 +88,22 @@ class GPSRunnerApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) {
           debugPrint('=== Creating AuthService ===');
           return AuthService();
+        }),
+        ChangeNotifierProvider(create: (_) {
+          debugPrint('=== Creating CoverageService ===');
+          return CoverageService();
+        }),
+        ChangeNotifierProvider(create: (_) {
+          debugPrint('=== Creating ChatService ===');
+          return ChatService();
+        }),
+        ChangeNotifierProvider(create: (_) {
+          debugPrint('=== Creating RWAService ===');
+          return RWAService();
+        }),
+        ChangeNotifierProvider(create: (_) {
+          debugPrint('=== Creating FootprintService ===');
+          return FootprintService();
         }),
       ],
       child: MaterialApp(

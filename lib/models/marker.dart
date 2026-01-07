@@ -1,36 +1,37 @@
-/// Represents a GPS marker placed by a player on the map
-class GPSMarker {
-  int id;
-  String playerId;
-  String playerName;
-  double latitude;
-  double longitude;
-  String city; // 'delhi' or 'hyderabad'
-  String color; // Hex color code
-  String landmarkName;
-  int timestamp;
-  String activityProof; // 'running', 'walking', etc.
-  double speedKmh;
-  int stepsPerMin;
-  String txHash; // Blockchain transaction hash
-  bool syncedToChain;
+import 'package:isar/isar.dart';
 
-  GPSMarker({
-    this.id = 0,
-    required this.playerId,
-    required this.playerName,
-    required this.latitude,
-    required this.longitude,
-    required this.city,
-    required this.color,
-    required this.landmarkName,
-    required this.activityProof,
-    required this.speedKmh,
-    required this.stepsPerMin,
-    this.txHash = '',
-    this.syncedToChain = false,
-    int? timestamp,
-  }) : timestamp = timestamp ?? DateTime.now().millisecondsSinceEpoch;
+part 'marker.g.dart';
+
+/// Represents a GPS marker placed by a player on the map
+@collection
+class GPSMarker {
+  Id id = Isar.autoIncrement;
+
+  @Index()
+  late String playerId;
+
+  late String playerName;
+  late double latitude;
+  late double longitude;
+
+  @Index()
+  late String city;
+
+  late String color;
+  late String landmarkName;
+
+  @Index()
+  late int timestamp;
+
+  late String activityProof;
+  late double speedKmh;
+  late int stepsPerMin;
+  late String txHash;
+
+  @Index()
+  late bool syncedToChain;
+
+  GPSMarker();
 
   GPSMarker.create({
     required this.playerId,
@@ -45,8 +46,7 @@ class GPSMarker {
     required this.stepsPerMin,
     this.txHash = '',
     this.syncedToChain = false,
-  })  : id = 0,
-        timestamp = DateTime.now().millisecondsSinceEpoch;
+  }) : timestamp = DateTime.now().millisecondsSinceEpoch;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -66,22 +66,21 @@ class GPSMarker {
       };
 
   factory GPSMarker.fromJson(Map<String, dynamic> json) {
-    return GPSMarker(
-      id: json['id'] ?? 0,
-      playerId: json['playerId'] ?? '',
-      playerName: json['playerName'] ?? 'Anonymous',
-      latitude: (json['latitude'] ?? 0).toDouble(),
-      longitude: (json['longitude'] ?? 0).toDouble(),
-      city: json['city'] ?? 'delhi',
-      color: json['color'] ?? '#2196F3',
-      landmarkName: json['landmarkName'] ?? 'Unknown',
-      timestamp: json['timestamp'] ?? DateTime.now().millisecondsSinceEpoch,
-      activityProof: json['activityProof'] ?? 'unknown',
-      speedKmh: (json['speedKmh'] ?? 0).toDouble(),
-      stepsPerMin: json['stepsPerMin'] ?? 0,
-      txHash: json['txHash'] ?? '',
-      syncedToChain: json['syncedToChain'] ?? false,
-    );
+    return GPSMarker()
+      ..id = json['id'] ?? Isar.autoIncrement
+      ..playerId = json['playerId'] ?? ''
+      ..playerName = json['playerName'] ?? 'Anonymous'
+      ..latitude = (json['latitude'] ?? 0).toDouble()
+      ..longitude = (json['longitude'] ?? 0).toDouble()
+      ..city = json['city'] ?? 'delhi'
+      ..color = json['color'] ?? '#2196F3'
+      ..landmarkName = json['landmarkName'] ?? 'Unknown'
+      ..timestamp = json['timestamp'] ?? DateTime.now().millisecondsSinceEpoch
+      ..activityProof = json['activityProof'] ?? 'unknown'
+      ..speedKmh = (json['speedKmh'] ?? 0).toDouble()
+      ..stepsPerMin = json['stepsPerMin'] ?? 0
+      ..txHash = json['txHash'] ?? ''
+      ..syncedToChain = json['syncedToChain'] ?? false;
   }
 
   GPSMarker copyWith({
@@ -100,22 +99,21 @@ class GPSMarker {
     String? txHash,
     bool? syncedToChain,
   }) {
-    return GPSMarker(
-      id: id ?? this.id,
-      playerId: playerId ?? this.playerId,
-      playerName: playerName ?? this.playerName,
-      latitude: latitude ?? this.latitude,
-      longitude: longitude ?? this.longitude,
-      city: city ?? this.city,
-      color: color ?? this.color,
-      landmarkName: landmarkName ?? this.landmarkName,
-      timestamp: timestamp ?? this.timestamp,
-      activityProof: activityProof ?? this.activityProof,
-      speedKmh: speedKmh ?? this.speedKmh,
-      stepsPerMin: stepsPerMin ?? this.stepsPerMin,
-      txHash: txHash ?? this.txHash,
-      syncedToChain: syncedToChain ?? this.syncedToChain,
-    );
+    return GPSMarker()
+      ..id = id ?? this.id
+      ..playerId = playerId ?? this.playerId
+      ..playerName = playerName ?? this.playerName
+      ..latitude = latitude ?? this.latitude
+      ..longitude = longitude ?? this.longitude
+      ..city = city ?? this.city
+      ..color = color ?? this.color
+      ..landmarkName = landmarkName ?? this.landmarkName
+      ..timestamp = timestamp ?? this.timestamp
+      ..activityProof = activityProof ?? this.activityProof
+      ..speedKmh = speedKmh ?? this.speedKmh
+      ..stepsPerMin = stepsPerMin ?? this.stepsPerMin
+      ..txHash = txHash ?? this.txHash
+      ..syncedToChain = syncedToChain ?? this.syncedToChain;
   }
 }
 

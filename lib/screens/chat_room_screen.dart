@@ -172,25 +172,29 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               ),
             ),
             const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _room?.name ?? 'Chat',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _room?.name ?? 'Chat',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                Text(
-                  _room?.description ?? '',
-                  style: TextStyle(
-                    color: Colors.grey.shade400,
-                    fontSize: 11,
+                  Text(
+                    _room?.description ?? '',
+                    style: TextStyle(
+                      color: Colors.grey.shade400,
+                      fontSize: 11,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),

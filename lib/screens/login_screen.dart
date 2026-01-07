@@ -381,11 +381,14 @@ class _LoginScreenState extends State<LoginScreen>
           child: Icon(icon, color: Colors.white, size: 20),
         ),
         const SizedBox(width: 12),
-        Text(
-          text,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.9),
-            fontSize: 16,
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.9),
+              fontSize: 16,
+            ),
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],
@@ -577,6 +580,8 @@ class WalletCreatedDialog extends StatelessWidget {
                       fontFamily: 'monospace',
                     ),
                     textAlign: TextAlign.center,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
                   ),
                 ],
               ),

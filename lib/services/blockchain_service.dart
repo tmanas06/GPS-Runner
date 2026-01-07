@@ -7,6 +7,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/gps_proof.dart';
 import '../models/marker.dart';
 import '../models/city_bounds.dart';
+import '../config/chain_config.dart';
 
 /// Blockchain connection state
 enum ChainState {
@@ -214,18 +215,15 @@ class LeaderboardEntry {
   double get distanceKm => distanceMeters / 1000.0;
 }
 
-/// Blockchain service for Polygon Mumbai
+/// Multi-chain Blockchain service
+/// Supports Mantle, Polygon, and BNB chains
 class BlockchainService extends ChangeNotifier {
   static final BlockchainService _instance = BlockchainService._internal();
   factory BlockchainService() => _instance;
   BlockchainService._internal();
 
-  // RPC Configuration - Mantle Sepolia Testnet
-  static const String _rpcUrl = 'https://rpc.sepolia.mantle.xyz';
-  static const String _wsUrl = 'wss://rpc.sepolia.mantle.xyz';
-
-  // Chain ID for Mantle Sepolia
-  static const int _chainId = 5003;
+  // Current chain configuration
+  ChainConfig _currentChain = SupportedChains.defaultChain;
 
   Web3Client? _client;
   WebSocketChannel? _wsChannel;
@@ -235,6 +233,7 @@ class BlockchainService extends ChangeNotifier {
   // Credentials (will be set from auth service)
   EthPrivateKey? _credentials;
   EthereumAddress? _address;
+  String? _privateKey;
 
   // Unified India contract
   DeployedContract? _indiaContract;
@@ -259,30 +258,83 @@ class BlockchainService extends ChangeNotifier {
   List<GPSMarker> get liveMarkers => List.unmodifiable(_liveMarkers);
   bool get isConnected => _state == ChainState.connected;
 
-  /// Initialize blockchain connection
-  Future<void> initialize(String privateKey) async {
-    if (_state == ChainState.connected) return;
+  // Chain getters
+  ChainConfig get currentChain => _currentChain;
+  int get chainId => _currentChain.chainId;
+  String get chainName => _currentChain.name;
+  String get explorerUrl => _currentChain.explorerUrl;
+  bool get isTestnet => _currentChain.isTestnet;
+  List<ChainConfig> get availableChains => SupportedChains.deployedChains;
+  List<ChainConfig> get allTestnets => SupportedChains.testnets;
+  List<ChainConfig> get allMainnets => SupportedChains.mainnets;
 
+  /// Initialize blockchain connection with optional chain selection
+  Future<void> initialize(String privateKey, {ChainType? chainType}) async {
+    if (_state == ChainState.connected && _privateKey == privateKey) return;
+
+    // Store private key for chain switching
+    _privateKey = privateKey;
+
+    // Set chain if specified
+    if (chainType != null) {
+      _currentChain = SupportedChains.getByType(chainType);
+    }
+
+    await _connectToChain();
+  }
+
+  /// Switch to a different chain
+  Future<bool> switchChain(ChainType chainType) async {
+    if (_privateKey == null) {
+      debugPrint('Cannot switch chain: not initialized');
+      return false;
+    }
+
+    // Check if chain has deployed contracts
+    final newChain = SupportedChains.getByType(chainType);
+    if (!newChain.hasContracts) {
+      debugPrint('Chain ${newChain.name} does not have deployed contracts yet');
+      _errorMessage = 'Contracts not deployed on ${newChain.name}';
+      notifyListeners();
+      return false;
+    }
+
+    // Disconnect from current chain
+    await disconnect();
+
+    // Switch to new chain
+    _currentChain = newChain;
+    await _connectToChain();
+
+    return _state == ChainState.connected;
+  }
+
+  /// Internal method to connect to current chain
+  Future<void> _connectToChain() async {
     _state = ChainState.connecting;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      // Create HTTP client
+      // Create HTTP client with current chain's RPC
       final httpClient = http.Client();
-      _client = Web3Client(_rpcUrl, httpClient);
+      _client = Web3Client(_currentChain.rpcUrl, httpClient);
 
       // Set credentials
-      _credentials = EthPrivateKey.fromHex(privateKey);
+      _credentials = EthPrivateKey.fromHex(_privateKey!);
       _address = _credentials!.address;
 
-      // Load unified India contract
-      final contractAbi = ContractAbi.fromJson(_indiaRunnerABI, 'IndiaRunner');
-
-      _indiaContract = DeployedContract(
-        contractAbi,
-        EthereumAddress.fromHex(CityBounds.indiaContractAddress),
-      );
+      // Load unified India contract if address is available
+      if (_currentChain.indiaRunnerAddress != null) {
+        final contractAbi = ContractAbi.fromJson(_indiaRunnerABI, 'IndiaRunner');
+        _indiaContract = DeployedContract(
+          contractAbi,
+          EthereumAddress.fromHex(_currentChain.indiaRunnerAddress!),
+        );
+      } else {
+        _indiaContract = null;
+        debugPrint('No IndiaRunner contract on ${_currentChain.name}');
+      }
 
       // Connect WebSocket for events (optional, don't fail if it doesn't work)
       try {
@@ -295,13 +347,23 @@ class BlockchainService extends ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
 
-      debugPrint('Blockchain connected: ${_address!.hex}');
+      debugPrint('Blockchain connected to ${_currentChain.name}: ${_address!.hex}');
     } catch (e) {
       _state = ChainState.error;
       _errorMessage = e.toString();
       notifyListeners();
-      debugPrint('Blockchain error: $e');
+      debugPrint('Blockchain error on ${_currentChain.name}: $e');
     }
+  }
+
+  /// Get explorer URL for a transaction
+  String getTxExplorerUrl(String txHash) {
+    return '${_currentChain.explorerTxUrl}$txHash';
+  }
+
+  /// Get explorer URL for an address
+  String getAddressExplorerUrl(String address) {
+    return '${_currentChain.explorerAddressUrl}$address';
   }
 
   Future<void> _connectWebSocket() async {
@@ -372,7 +434,7 @@ class BlockchainService extends ChangeNotifier {
             BigInt.from(proof.stepsPerMin),
           ],
         ),
-        chainId: _chainId,
+        chainId: _currentChain.chainId,
       );
 
       debugPrint('Transaction submitted: $tx');

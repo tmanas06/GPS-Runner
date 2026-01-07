@@ -8,27 +8,28 @@ import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../services/isar_db.dart';
+import '../services/coverage_service.dart';
+import '../models/walking_session.dart';
+import '../models/city_bounds.dart';
 import '../config/map_config.dart';
 import 'profile_screen.dart';
+import 'stats_screen.dart';
+import 'leaderboard_screen.dart';
 
 /// Crypto coin types with their properties
 enum CryptoCoin {
-  bitcoin('BTC', 'Bitcoin', Colors.orange, 0.0001, 'assets/btc.png'),
-  ethereum('ETH', 'Ethereum', Colors.blue, 0.001, 'assets/eth.png'),
-  polygon('MATIC', 'Polygon', Colors.purple, 0.1, 'assets/matic.png'),
-  solana('SOL', 'Solana', Colors.teal, 0.01, 'assets/sol.png'),
-  dogecoin('DOGE', 'Dogecoin', Colors.amber, 1.0, 'assets/doge.png'),
-  cardano('ADA', 'Cardano', Colors.indigo, 0.5, 'assets/ada.png'),
-  ripple('XRP', 'Ripple', Colors.blueGrey, 0.2, 'assets/xrp.png'),
-  litecoin('LTC', 'Litecoin', Colors.grey, 0.005, 'assets/ltc.png');
+  mantle('MNT', 'Mantle', Colors.teal, 0.5, 'assets/mnt.png', 'gMNT'),
+  polygon('MATIC', 'Polygon', Colors.purple, 0.1, 'assets/matic.png', 'gPOL'),
+  bnb('BNB', 'BNB Chain', Colors.amber, 0.01, 'assets/bnb.png', 'gBNB');
 
   final String symbol;
   final String name;
   final Color color;
   final double baseAmount;
   final String icon;
+  final String gameTokenSymbol; // Token symbol for on-chain (gMNT, gPOL, gBNB)
 
-  const CryptoCoin(this.symbol, this.name, this.color, this.baseAmount, this.icon);
+  const CryptoCoin(this.symbol, this.name, this.color, this.baseAmount, this.icon, this.gameTokenSymbol);
 }
 
 /// A spawned coin on the map
@@ -58,7 +59,7 @@ class RunnerScreen extends StatefulWidget {
   State<RunnerScreen> createState() => _RunnerScreenState();
 }
 
-class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMixin {
+class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMixin, WidgetsBindingObserver {
   // Map controller
   final MapController _mapController = MapController();
 
@@ -78,6 +79,7 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
   // Timers
   Timer? _spawnTimer;
   Timer? _collectionCheckTimer;
+  Timer? _autoSaveTimer;
 
   // Random generator
   final Random _random = Random();
@@ -97,6 +99,14 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
 
   // Services
   late AuthService _auth;
+  late IsarDBService _db;
+  late CoverageService _coverageService;
+
+  // Walking session tracking
+  WalkingSession? _currentSession;
+  String _currentCity = '';
+  String _currentState = '';
+  int _stepCount = 0;
 
   // Error state
   String? _locationError;
@@ -107,6 +117,9 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
   @override
   void initState() {
     super.initState();
+
+    // Register lifecycle observer
+    WidgetsBinding.instance.addObserver(this);
 
     // Initialize wallet
     for (final coin in CryptoCoin.values) {
@@ -136,12 +149,73 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
       const Duration(milliseconds: 500),
       (_) => _checkCollection(),
     );
+
+    // Auto-save session every 30 seconds
+    _autoSaveTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _saveCurrentSession(),
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Save when app goes to background or is paused
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _saveCurrentSession();
+      debugPrint('App lifecycle: $state - Session saved');
+    }
+  }
+
+  Future<void> _saveCurrentSession() async {
+    if (_currentSession != null && _currentSession!.isActive) {
+      _currentSession!.totalSteps = _stepCount;
+      await _db.updateCurrentSession(_currentSession!);
+    }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _auth = context.read<AuthService>();
+    _db = context.read<IsarDBService>();
+    _coverageService = context.read<CoverageService>();
+
+    // Initialize user on leaderboard with 0 stats
+    _initializeLeaderboard();
+
+    // Load saved coin balances
+    _loadSavedBalances();
+  }
+
+  /// Load saved coin balances from database
+  Future<void> _loadSavedBalances() async {
+    await _db.initializeGameCoins();
+    final savedBalances = await _db.getGameCoinBalances();
+
+    if (mounted) {
+      setState(() {
+        for (final coin in CryptoCoin.values) {
+          final savedAmount = savedBalances[coin.gameTokenSymbol] ?? 0.0;
+          _wallet[coin] = savedAmount;
+        }
+      });
+    }
+    debugPrint('Loaded saved balances: $savedBalances');
+  }
+
+  Future<void> _initializeLeaderboard() async {
+    final profile = _auth.profile;
+    if (profile != null) {
+      await _db.initializeUserOnLeaderboard(
+        odId: profile.id,
+        playerName: profile.name,
+        playerColor: profile.color,
+        city: _currentCity,
+      );
+    }
   }
 
   Future<void> _startLocationTracking() async {
@@ -187,12 +261,30 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
 
       if (mounted) {
         final initialLocation = LatLng(position.latitude, position.longitude);
+
+        // Detect city and state from location
+        final stateConfig = CityBounds.detectState(position.latitude, position.longitude);
+        if (stateConfig != null) {
+          _currentState = stateConfig.name;
+          final city = stateConfig.detectCity(position.latitude, position.longitude);
+          _currentCity = city?.name ?? stateConfig.name;
+        } else {
+          _currentCity = 'Unknown';
+          _currentState = 'Unknown';
+        }
+
         setState(() {
           _currentLocation = initialLocation;
           _locationError = null;
           // Start the walking trail from initial position
           _walkingTrail.add(initialLocation);
         });
+
+        // Start walking session
+        _startWalkingSession();
+
+        // Start coverage tracking
+        _coverageService.startTracking(_currentCity, _currentState);
 
         // Center map on current location (street level like walking directions)
         Future.delayed(const Duration(milliseconds: 500), () {
@@ -215,14 +307,49 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
       ).listen((Position position) {
         if (mounted) {
           final newLocation = LatLng(position.latitude, position.longitude);
+          final speedKmh = position.speed * 3.6; // Convert m/s to km/h
+
           setState(() {
             _currentLocation = newLocation;
             // Add to walking trail
             if (_walkingTrail.isEmpty ||
                 _getDistance(_walkingTrail.last, newLocation) > 2) {
               _walkingTrail.add(newLocation);
+
+              // Estimate steps (approx 1.3 steps per meter at walking pace)
+              _stepCount += (_getDistance(_walkingTrail.length > 1 ? _walkingTrail[_walkingTrail.length - 2] : newLocation, newLocation) * 1.3).toInt();
+
+              // Update walking session
+              _currentSession?.addTrackPoint(
+                position.latitude,
+                position.longitude,
+                speedKmh,
+                _stepCount,
+              );
+
+              // Save covered area point locally
+              if (_currentCity.isNotEmpty && _currentCity != 'Unknown') {
+                _db.saveCoveredAreaPoint(position.latitude, position.longitude, _currentCity.toLowerCase());
+
+                // Sync to cloud for other players to see
+                _coverageService.updateLocation(
+                  position.latitude,
+                  position.longitude,
+                  _currentCity,
+                  _currentState,
+                  distanceMeters: _currentSession?.totalDistanceMeters,
+                );
+              }
             }
           });
+
+          // Update session in DB frequently (every 5 points or 30 seconds worth)
+          if (_currentSession != null && _walkingTrail.length % 5 == 0) {
+            _currentSession!.totalSteps = _stepCount;
+            _db.updateCurrentSession(_currentSession!);
+            debugPrint('Session saved: ${_currentSession!.formattedDistance}, $_stepCount steps');
+          }
+
           // Keep map centered on current location (follow mode)
           _mapController.move(newLocation, _mapController.camera.zoom);
         }
@@ -233,6 +360,54 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
         setState(() {
           _locationError = 'Could not get location: ${e.toString()}';
         });
+      }
+    }
+  }
+
+  Future<void> _startWalkingSession() async {
+    try {
+      // Check if there's an existing active session
+      _currentSession = await _db.getCurrentSession();
+
+      if (_currentSession == null || !_currentSession!.isActive) {
+        // Start new session
+        _currentSession = await _db.startWalkingSession(
+          city: _currentCity,
+          state: _currentState,
+        );
+        debugPrint('Started new walking session: ${_currentSession?.id}');
+      } else {
+        debugPrint('Resuming existing walking session: ${_currentSession?.id}');
+      }
+    } catch (e) {
+      debugPrint('Error starting walking session: $e');
+    }
+  }
+
+  Future<void> _endWalkingSession() async {
+    if (_currentSession != null && _currentSession!.isActive) {
+      try {
+        _currentSession!.totalSteps = _stepCount;
+        await _db.endCurrentSession(_currentSession!);
+        debugPrint('Ended walking session: ${_currentSession?.id}');
+
+        // Update weekly leaderboard
+        final profile = _auth.profile;
+        if (profile != null) {
+          await _db.updateWeeklyLeaderboard(
+            odId: profile.id,
+            playerName: profile.name,
+            playerColor: profile.color,
+            city: _currentCity,
+            distanceMeters: _currentSession!.totalDistanceMeters,
+            markerCount: 0, // Markers are tracked separately
+            steps: _currentSession!.totalSteps,
+            maxSpeed: _currentSession!.maxSpeedKmh,
+          );
+          debugPrint('Updated weekly leaderboard');
+        }
+      } catch (e) {
+        debugPrint('Error ending walking session: $e');
       }
     }
   }
@@ -271,14 +446,9 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
   CryptoCoin _getRandomCoinType() {
     // Weighted random - common coins more likely
     final weights = [
-      5,   // BTC - rare
-      10,  // ETH - uncommon
-      25,  // MATIC - common
-      15,  // SOL - uncommon
-      30,  // DOGE - very common
-      20,  // ADA - common
-      20,  // XRP - common
-      15,  // LTC - uncommon
+      30,  // MNT - common (Mantle)
+      40,  // MATIC - very common (Polygon)
+      30,  // BNB - common (BNB Chain)
     ];
 
     final totalWeight = weights.reduce((a, b) => a + b);
@@ -290,7 +460,7 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
         return CryptoCoin.values[i];
       }
     }
-    return CryptoCoin.dogecoin;
+    return CryptoCoin.polygon;
   }
 
   LatLng _getRandomLocation(LatLng center, double radiusMeters) {
@@ -332,6 +502,9 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
           coin.collected = true;
           _wallet[coin.type] = (_wallet[coin.type] ?? 0) + coin.amount;
 
+          // Save to database for persistence
+          _saveCollectedCoin(coin);
+
           HapticFeedback.mediumImpact();
           _showCollectionPopup(coin);
         }
@@ -344,6 +517,17 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
     });
   }
 
+  /// Save collected coin to database
+  Future<void> _saveCollectedCoin(SpawnedCoin coin) async {
+    await _db.addCollectedCoin(
+      coin.type.gameTokenSymbol,
+      coin.amount,
+      latitude: coin.location.latitude,
+      longitude: coin.location.longitude,
+    );
+    debugPrint('Saved ${coin.amount} ${coin.type.gameTokenSymbol} to database');
+  }
+
   void _showCollectionPopup(SpawnedCoin coin) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -352,7 +536,7 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
             _buildCoinIcon(coin.type, 24),
             const SizedBox(width: 12),
             Text(
-              '+${coin.amount.toStringAsFixed(coin.type == CryptoCoin.dogecoin ? 1 : 6)} ${coin.type.symbol}',
+              '+${coin.amount.toStringAsFixed(coin.type == CryptoCoin.mantle ? 2 : 4)} ${coin.type.symbol}',
               style: const TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
@@ -418,9 +602,23 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
               child: _buildWalletButton(),
             ),
 
-            // Collection radius indicator
+            // Stats button
             Positioned(
               bottom: 170,
+              left: 16,
+              child: _buildStatsButton(),
+            ),
+
+            // Leaderboard button
+            Positioned(
+              bottom: 230,
+              left: 16,
+              child: _buildLeaderboardButton(),
+            ),
+
+            // Collection radius indicator
+            Positioned(
+              bottom: 300,
               left: 0,
               right: 0,
               child: _buildRadiusIndicator(),
@@ -685,14 +883,9 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
   Widget _buildCoinIcon(CryptoCoin coin, double size) {
     // Use text symbols since we don't have actual crypto icons
     final symbols = {
-      CryptoCoin.bitcoin: '₿',
-      CryptoCoin.ethereum: 'Ξ',
+      CryptoCoin.mantle: 'M',
       CryptoCoin.polygon: '⬡',
-      CryptoCoin.solana: '◎',
-      CryptoCoin.dogecoin: 'Ð',
-      CryptoCoin.cardano: '₳',
-      CryptoCoin.ripple: '✕',
-      CryptoCoin.litecoin: 'Ł',
+      CryptoCoin.bnb: '◆',
     };
 
     return Text(
@@ -744,7 +937,7 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
                 _buildCoinIcon(entry.key, 14),
                 const SizedBox(width: 6),
                 Text(
-                  '${entry.value.toStringAsFixed(entry.key == CryptoCoin.dogecoin ? 1 : 4)}',
+                  '${entry.value.toStringAsFixed(entry.key == CryptoCoin.mantle ? 2 : 4)}',
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
@@ -921,6 +1114,36 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
     );
   }
 
+  Widget _buildStatsButton() {
+    return FloatingActionButton(
+      heroTag: 'stats',
+      mini: true,
+      backgroundColor: Colors.green,
+      onPressed: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const StatsScreen()),
+        );
+      },
+      child: const Icon(Icons.analytics, color: Colors.white),
+    );
+  }
+
+  Widget _buildLeaderboardButton() {
+    return FloatingActionButton(
+      heroTag: 'leaderboard',
+      mini: true,
+      backgroundColor: Colors.purple,
+      onPressed: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const LeaderboardScreen()),
+        );
+      },
+      child: const Icon(Icons.leaderboard, color: Colors.white),
+    );
+  }
+
   // Calculate total walking distance
   double get _totalWalkingDistance {
     if (_walkingTrail.length < 2) return 0;
@@ -954,11 +1177,11 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
               style: const TextStyle(color: Colors.blue, fontSize: 12, fontWeight: FontWeight.bold),
             ),
             const SizedBox(width: 12),
-            const Icon(Icons.radar, color: Colors.green, size: 20),
-            const SizedBox(width: 6),
+            const Icon(Icons.hiking, color: Colors.orange, size: 20),
+            const SizedBox(width: 4),
             Text(
-              '${_collectionRadius.toInt()}m',
-              style: const TextStyle(color: Colors.white, fontSize: 12),
+              '$_stepCount',
+              style: const TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.bold),
             ),
             const SizedBox(width: 8),
             Text(
@@ -1067,7 +1290,7 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
                         ),
                         Text(
                           balance > 0
-                            ? balance.toStringAsFixed(coin == CryptoCoin.dogecoin ? 2 : 6)
+                            ? balance.toStringAsFixed(coin == CryptoCoin.mantle ? 2 : 4)
                             : '0',
                           style: TextStyle(
                             color: balance > 0 ? Colors.white : Colors.grey.shade600,
@@ -1097,9 +1320,22 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
 
   @override
   void dispose() {
+    // Remove lifecycle observer
+    WidgetsBinding.instance.removeObserver(this);
+
+    // Save session before closing
+    _saveCurrentSession();
+    _endWalkingSession();
+
+    // Stop services
+    _coverageService.stopTracking();
+
+    // Cancel timers
+    _autoSaveTimer?.cancel();
     _locationSubscription?.cancel();
     _spawnTimer?.cancel();
     _collectionCheckTimer?.cancel();
+
     _pulseController.dispose();
     super.dispose();
   }

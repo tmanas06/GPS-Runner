@@ -1,0 +1,10 @@
+{
+  "network": "bnbTestnet",
+  "chainId": 97,
+  "tokenName": "GPS Game BNB",
+  "tokenSymbol": "gBNB",
+  "address": "0x79A5B42530fDa67638ED2Ac33fa8D1eb50c6B7F7",
+  "deployer": "0xB4cd671bd612C996A21F48170e30382449FFD864",
+  "timestamp": "2026-01-07T07:59:03.240Z",
+  "blockNumber": 83009805
+}
