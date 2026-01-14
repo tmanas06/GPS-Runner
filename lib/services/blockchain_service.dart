@@ -390,23 +390,31 @@ class BlockchainService extends ChangeNotifier {
   /// Submit GPS proof to blockchain
   Future<String?> submitProof(GPSProof proof) async {
     if (!isConnected || _credentials == null) {
+      _errorMessage = 'Blockchain not connected. Please check your network.';
+      notifyListeners();
       debugPrint('Blockchain not connected');
       return null;
     }
 
     // Client-side rate limiting
     if (isRateLimited) {
+      _errorMessage = 'Please wait $secondsUntilNextSubmission seconds before submitting again.';
+      notifyListeners();
       debugPrint('Rate limited: wait $secondsUntilNextSubmission seconds');
       return null;
     }
 
     // Validate proof
     if (!proof.isValid) {
+      _errorMessage = proof.rejectionReason ?? 'Invalid GPS proof';
+      notifyListeners();
       debugPrint('Invalid proof: ${proof.rejectionReason}');
       return null;
     }
 
     if (_indiaContract == null) {
+      _errorMessage = 'Smart contract not initialized. Please try again.';
+      notifyListeners();
       debugPrint('Contract not initialized');
       return null;
     }
@@ -417,6 +425,38 @@ class BlockchainService extends ChangeNotifier {
       // Get state and city hashes
       final stateHash = _hexToBytes32(CityBounds.getStateHash(proof.stateId));
       final cityHash = _hexToBytes32(CityBounds.getCityHash(proof.city));
+
+      // Estimate gas before sending (with fallback)
+      BigInt? gasEstimate;
+      try {
+        gasEstimate = await _client!.estimateGas(
+          sender: _address!,
+          to: _indiaContract!.address,
+          data: submitFunction.encodeCall([
+            BigInt.from(proof.lat1e6),
+            BigInt.from(proof.lng1e6),
+            stateHash,
+            cityHash,
+            proof.landmarkName ?? 'Unknown',
+            BigInt.from(proof.activityType.code),
+            BigInt.from(proof.speedInt),
+            BigInt.from(proof.stepsPerMin),
+          ]),
+        );
+        debugPrint('Gas estimate: $gasEstimate');
+      } catch (e) {
+        debugPrint('Gas estimation failed: $e (using default)');
+        // Continue with default gas limit
+      }
+
+      // Check balance before sending
+      final balance = await getBalance();
+      if (balance < 0.001) { // Minimum 0.001 native token for gas
+        _errorMessage = 'Insufficient balance for transaction. Please add ${_currentChain.nativeSymbol} to your wallet.';
+        notifyListeners();
+        debugPrint('Insufficient balance: $balance');
+        return null;
+      }
 
       final tx = await _client!.sendTransaction(
         _credentials!,
@@ -433,16 +473,62 @@ class BlockchainService extends ChangeNotifier {
             BigInt.from(proof.speedInt),
             BigInt.from(proof.stepsPerMin),
           ],
+          // Gas price will be estimated automatically if not provided
+          // Convert BigInt to int (gas limits are typically within int range)
+          maxGas: gasEstimate != null 
+              ? (gasEstimate * BigInt.from(2)).toInt()
+              : null, // 2x estimate for safety
         ),
         chainId: _currentChain.chainId,
       );
 
       debugPrint('Transaction submitted: $tx');
       _lastSubmissionTime = DateTime.now();
+      _errorMessage = null;
+      notifyListeners();
+      
+      // Wait for transaction confirmation (optional - can be done async)
+      _waitForConfirmation(tx);
+      
       return tx;
     } catch (e) {
+      String errorMsg = 'Transaction failed';
+      if (e.toString().contains('insufficient funds') || e.toString().contains('balance')) {
+        errorMsg = 'Insufficient ${_currentChain.nativeSymbol} balance for gas fees';
+      } else if (e.toString().contains('network') || e.toString().contains('connection')) {
+        errorMsg = 'Network error. Please check your internet connection.';
+      } else if (e.toString().contains('nonce')) {
+        errorMsg = 'Transaction nonce error. Please try again.';
+      } else {
+        errorMsg = 'Transaction error: ${e.toString().length > 100 ? e.toString().substring(0, 100) : e.toString()}';
+      }
+      
+      _errorMessage = errorMsg;
+      notifyListeners();
       debugPrint('Transaction error: $e');
       return null;
+    }
+  }
+  
+  /// Wait for transaction confirmation (async, non-blocking)
+  Future<void> _waitForConfirmation(String txHash) async {
+    try {
+      // Poll for transaction receipt (max 30 seconds)
+      for (int i = 0; i < 30; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+        final receipt = await _client!.getTransactionReceipt(txHash);
+        if (receipt != null) {
+          debugPrint('Transaction confirmed: $txHash');
+          if (receipt.status == false) {
+            _errorMessage = 'Transaction failed on-chain. Please try again.';
+            notifyListeners();
+          }
+          return;
+        }
+      }
+      debugPrint('Transaction confirmation timeout: $txHash');
+    } catch (e) {
+      debugPrint('Error waiting for confirmation: $e');
     }
   }
 

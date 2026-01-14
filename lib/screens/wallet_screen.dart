@@ -461,6 +461,48 @@ class _WalletScreenState extends State<WalletScreen>
         _buildRWACard(),
         const SizedBox(height: 16),
 
+        // Disclaimer card
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.orange.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.orange.withOpacity(0.3)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.info_outline, color: Colors.orange, size: 20),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Important Disclaimer',
+                    style: TextStyle(
+                      color: Colors.orange,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '⚠️ Testnet Tokens: All tokens on testnet (gMNT, gPOL, gBNB) have NO monetary value. '
+                'They are for testing purposes only.\n\n'
+                '🔒 Wallet Security: Never share your private key. Keep it secure and backed up.\n\n'
+                '⚡ Gas Fees: Blockchain transactions require gas fees in native tokens (MATIC/MNT/BNB).',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
         // Info card
         Container(
           padding: const EdgeInsets.all(16),

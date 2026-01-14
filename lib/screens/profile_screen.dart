@@ -18,6 +18,7 @@ import 'wallet_screen.dart';
 import 'chat_list_screen.dart';
 import 'login_screen.dart';
 import 'analytics_screen.dart';
+import 'privacy_screen.dart';
 
 /// Profile screen with dual-city map and leaderboards
 class ProfileScreen extends StatefulWidget {
@@ -1115,6 +1116,21 @@ class _ProfileScreenState extends State<ProfileScreen>
               title: const Text('Export Private Key'),
               subtitle: const Text('Backup your wallet'),
               onTap: () => _exportPrivateKey(),
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.privacy_tip, color: Colors.blue),
+              title: const Text('Privacy & Data'),
+              subtitle: const Text('Manage your privacy settings'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const PrivacyScreen(),
+                  ),
+                );
+              },
             ),
             const Divider(),
             ListTile(

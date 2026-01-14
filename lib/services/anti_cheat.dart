@@ -65,6 +65,7 @@ class AntiCheatService extends ChangeNotifier {
   int _violationCount = 0;
   DateTime? _suspendedUntil;
   final List<_LocationHistory> _locationHistory = [];
+  DateTime? _appStartTime; // Track app start for grace period
 
   // Last verification result
   AntiCheatResult? _lastResult;
@@ -88,6 +89,14 @@ class AntiCheatService extends ChangeNotifier {
 
   /// Verify GPS data for anti-cheat
   AntiCheatResult verify(GPSData data) {
+    // Initialize app start time on first verification
+    _appStartTime ??= DateTime.now();
+    
+    // Grace period: Skip strict checks for first 30 seconds after app start
+    final gracePeriod = _appStartTime != null
+        ? DateTime.now().difference(_appStartTime!).inSeconds < 30
+        : false;
+    
     // Check if suspended
     if (isSuspended) {
       final remaining =
@@ -96,6 +105,30 @@ class AntiCheatService extends ChangeNotifier {
         status: CheatStatus.suspended,
         message: 'Account suspended for $remaining more minutes',
         details: {'remainingMinutes': remaining},
+      );
+      notifyListeners();
+      return _lastResult!;
+    }
+    
+    // During grace period, only check for obvious violations (vehicle, extreme speed)
+    if (gracePeriod) {
+      if (data.activityType == ActivityType.inVehicle ||
+          data.position.speed > 15.0) { // 54 km/h - definitely a vehicle
+        _recordViolation();
+        _lastResult = AntiCheatResult(
+          status: CheatStatus.vehicleDetected,
+          message: 'Vehicle detected during grace period',
+          confidence: 0.95,
+        );
+        notifyListeners();
+        return _lastResult!;
+      }
+      // Skip other checks during grace period
+      _addToHistory(data);
+      _lastResult = AntiCheatResult(
+        status: CheatStatus.valid,
+        message: 'Grace period - checks relaxed',
+        confidence: 0.70,
       );
       notifyListeners();
       return _lastResult!;
@@ -220,10 +253,19 @@ class AntiCheatService extends ChangeNotifier {
       return AntiCheatResult(status: CheatStatus.valid, message: 'Standing still');
     }
 
+    // Skip step check if pedometer not available (stepsPerMin will be 0)
+    // This handles devices without step counter hardware gracefully
+    if (data.stepsPerMin == 0 && data.position.speed < 2.0) {
+      // If no steps but also not moving fast, likely pedometer unavailable
+      // Only flag if moving fast without steps (suspicious)
+      return AntiCheatResult(status: CheatStatus.valid, message: 'Steps check skipped (pedometer unavailable)');
+    }
+
     final minSteps = data.activityType == ActivityType.running
         ? AntiCheatConfig.minStepsPerMinRunning
         : AntiCheatConfig.minStepsPerMinWalking;
 
+    // Only check steps if actually moving (speed > 1 m/s)
     if (data.stepsPerMin < minSteps && data.position.speed > 1.0) {
       return AntiCheatResult(
         status: CheatStatus.stepsLow,
@@ -241,14 +283,18 @@ class AntiCheatService extends ChangeNotifier {
   }
 
   AntiCheatResult _checkGPSAccuracy(GPSData data) {
-    if (data.position.accuracy > AntiCheatConfig.maxAccuracyMeters) {
+    // Use adaptive threshold: 100m in urban areas, 50m in open areas
+    // For now, use 100m as default (more lenient for urban canyons)
+    final maxAccuracy = 100.0; // Increased from 50m to reduce false positives
+    
+    if (data.position.accuracy > maxAccuracy) {
       return AntiCheatResult(
         status: CheatStatus.gpsAccuracyLow,
         message: 'GPS accuracy too low: ${data.position.accuracy.toStringAsFixed(0)}m\nMove to open area',
         confidence: 0.70,
         details: {
           'accuracy': data.position.accuracy,
-          'maxAllowed': AntiCheatConfig.maxAccuracyMeters
+          'maxAllowed': maxAccuracy
         },
       );
     }
@@ -361,6 +407,7 @@ class AntiCheatService extends ChangeNotifier {
     _activityOk = true;
     _stepsOk = true;
     _gpsOk = true;
+    _appStartTime = null;
     notifyListeners();
   }
 }

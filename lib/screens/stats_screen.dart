@@ -193,6 +193,31 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          // Calories estimate (if we have sessions)
+          if (_sessions.isNotEmpty) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: _StatCard(
+                    icon: Icons.local_fire_department,
+                    title: 'Est. Calories',
+                    value: _calculateTotalCalories(),
+                    color: Colors.orange,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _StatCard(
+                    icon: Icons.directions_walk,
+                    title: 'Total Steps',
+                    value: _formatNumber(_localStats.totalSteps),
+                    color: Colors.purple,
+                  ),
+                ),
+              ],
+            ),
+          ],
 
           const SizedBox(height: 24),
 
@@ -543,6 +568,26 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
       return '${(meters / 1000).toStringAsFixed(2)} km';
     }
     return '${meters.toStringAsFixed(0)} m';
+  }
+
+  String _formatNumber(int number) {
+    if (number >= 1000000) {
+      return '${(number / 1000000).toStringAsFixed(1)}M';
+    } else if (number >= 1000) {
+      return '${(number / 1000).toStringAsFixed(1)}K';
+    }
+    return number.toString();
+  }
+
+  String _calculateTotalCalories() {
+    double total = 0;
+    for (final session in _sessions) {
+      total += session.estimatedCalories;
+    }
+    if (total >= 1000) {
+      return '${(total / 1000).toStringAsFixed(1)}K kcal';
+    }
+    return '${total.toStringAsFixed(0)} kcal';
   }
 
   @override

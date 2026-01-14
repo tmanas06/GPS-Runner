@@ -240,6 +240,9 @@ class GPSService extends ChangeNotifier {
   }
 
   void _onPositionUpdate(Position position) {
+    // Guard against race conditions - only process if tracking
+    if (_state != GPSState.tracking) return;
+
     // Detect city
     final city = CityBounds.detect(position.latitude, position.longitude);
 
@@ -256,16 +259,31 @@ class GPSService extends ChangeNotifier {
       nearestLandmark: landmark,
     );
 
-    // Notify callbacks
-    for (final callback in _onLocationCallbacks) {
-      callback(_currentData!);
+    // Notify callbacks with error handling and null safety
+    final data = _currentData;
+    if (data != null) {
+      // Create a copy of callbacks list to avoid modification during iteration
+      for (final callback in List.from(_onLocationCallbacks)) {
+        try {
+          callback(data);
+        } catch (e) {
+          debugPrint('GPS callback error: $e');
+          // Remove broken callback to prevent future errors
+          _onLocationCallbacks.remove(callback);
+        }
+      }
     }
 
     // Check for landmark entry
     if (landmark != null && city != null) {
       final landmarkMsg = '${city.emoji} ${landmark.name}';
-      for (final callback in _onLandmarkCallbacks) {
-        callback(landmarkMsg);
+      for (final callback in List.from(_onLandmarkCallbacks)) {
+        try {
+          callback(landmarkMsg);
+        } catch (e) {
+          debugPrint('Landmark callback error: $e');
+          _onLandmarkCallbacks.remove(callback);
+        }
       }
     }
 
@@ -345,6 +363,9 @@ class GPSService extends ChangeNotifier {
 
   @override
   void dispose() {
+    // Clear all callbacks to prevent memory leaks
+    _onLocationCallbacks.clear();
+    _onLandmarkCallbacks.clear();
     stopTracking();
     super.dispose();
   }

@@ -218,6 +218,35 @@ class WalkingSession {
     return '${totalDistanceMeters.toStringAsFixed(0)} m';
   }
 
+  /// Calculate estimated calories burned using MET (Metabolic Equivalent)
+  /// MET values: Walking 3.5, Running 7.0, Average 5.0
+  @ignore
+  double get estimatedCalories {
+    // Determine MET based on average speed
+    double met;
+    if (avgSpeedKmh < 5.0) {
+      met = 3.5; // Slow walking
+    } else if (avgSpeedKmh < 8.0) {
+      met = 5.0; // Brisk walking
+    } else if (avgSpeedKmh < 12.0) {
+      met = 6.0; // Fast walking / jogging
+    } else {
+      met = 7.0; // Running
+    }
+
+    // Formula: Calories = MET × weight(kg) × time(hours)
+    // Using average weight of 70kg (can be made configurable later)
+    const averageWeightKg = 70.0;
+    final hours = durationSeconds / 3600.0;
+    return met * averageWeightKg * hours;
+  }
+
+  /// Get formatted calories
+  @ignore
+  String get formattedCalories {
+    return '${estimatedCalories.toStringAsFixed(0)} kcal';
+  }
+
   /// Convert to JSON
   Map<String, dynamic> toJson() => {
         'id': id,

@@ -67,8 +67,9 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
   LatLng? _currentLocation;
   StreamSubscription<Position>? _locationSubscription;
 
-  // Walking trail - stores path points
+  // Walking trail - stores path points (limited to prevent memory issues)
   final List<LatLng> _walkingTrail = [];
+  static const int _maxTrailPoints = 1000; // Limit trail to prevent memory leaks
 
   // Spawned coins on map
   final List<SpawnedCoin> _spawnedCoins = [];
@@ -297,12 +298,12 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
         _spawnCoins();
       }
 
-      // Listen for location updates (real-time like Swiggy/Zomato)
+      // Listen for location updates with adaptive frequency for battery optimization
       _locationSubscription = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.bestForNavigation,
-          distanceFilter: 2, // Update every 2 meters for smoother trail
-          timeLimit: Duration(seconds: 1), // Update at least every second
+        locationSettings: LocationSettings(
+          accuracy: LocationAccuracy.high, // Changed from bestForNavigation to reduce battery drain
+          distanceFilter: 5, // Adaptive: 5m when moving (reduced from 2m for battery)
+          timeLimit: const Duration(seconds: 2), // Update at least every 2 seconds (reduced frequency)
         ),
       ).listen((Position position) {
         if (mounted) {
@@ -311,10 +312,16 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
 
           setState(() {
             _currentLocation = newLocation;
-            // Add to walking trail
+            // Add to walking trail with memory management
             if (_walkingTrail.isEmpty ||
                 _getDistance(_walkingTrail.last, newLocation) > 2) {
               _walkingTrail.add(newLocation);
+              
+              // Limit trail size to prevent memory leaks
+              if (_walkingTrail.length > _maxTrailPoints) {
+                // Remove oldest 100 points when limit reached
+                _walkingTrail.removeRange(0, 100);
+              }
 
               // Estimate steps (approx 1.3 steps per meter at walking pace)
               _stepCount += (_getDistance(_walkingTrail.length > 1 ? _walkingTrail[_walkingTrail.length - 2] : newLocation, newLocation) * 1.3).toInt();
@@ -578,6 +585,15 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
             left: 8,
             child: _buildBackButton(),
           ),
+
+          // Safety disclaimer (shown when location is loaded)
+          if (_currentLocation != null)
+            Positioned(
+              bottom: 16,
+              left: 16,
+              right: 16,
+              child: _buildSafetyDisclaimer(),
+            ),
 
           // Only show these when location is loaded
           if (_currentLocation != null) ...[
@@ -1152,6 +1168,34 @@ class _RunnerScreenState extends State<RunnerScreen> with TickerProviderStateMix
       total += _getDistance(_walkingTrail[i - 1], _walkingTrail[i]);
     }
     return total;
+  }
+
+  Widget _buildSafetyDisclaimer() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.red.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.warning_amber, color: Colors.red, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Walk safely! Be aware of your surroundings and traffic.',
+              style: TextStyle(
+                color: Colors.red.shade200,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildRadiusIndicator() {

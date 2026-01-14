@@ -216,7 +216,7 @@ class IsarDBService extends ChangeNotifier {
     debugPrint('Added proof to offline queue. Queue size: $queueSize');
   }
 
-  /// Process offline queue
+  /// Process offline queue in batches to prevent UI blocking
   Future<void> _processOfflineQueue() async {
     if (!_isInitialized) return;
 
@@ -225,16 +225,27 @@ class IsarDBService extends ChangeNotifier {
 
     debugPrint('Processing offline queue: ${items.length} items');
 
+    // Process in batches of 10 to prevent UI blocking
+    const batchSize = 10;
     final toRemove = <int>[];
 
-    for (final item in items) {
-      if (!item.shouldRetry) {
+    for (int i = 0; i < items.length; i += batchSize) {
+      final batch = items.skip(i).take(batchSize).toList();
+      
+      for (final item in batch) {
+        if (!item.shouldRetry) {
+          toRemove.add(item.id);
+          continue;
+        }
+        // Try to sync (would call blockchain service here)
+        // For now, just mark for removal
         toRemove.add(item.id);
-        continue;
       }
-      // Try to sync (would call blockchain service here)
-      // For now, just mark for removal
-      toRemove.add(item.id);
+      
+      // Small delay between batches to keep UI responsive
+      if (i + batchSize < items.length) {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
     }
 
     if (toRemove.isNotEmpty) {
